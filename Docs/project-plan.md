@@ -6,14 +6,14 @@ As of today there is currently no reliable data on what is the amount of compens
 ### Datasets
 There are two data sources available for all relevant B.C. court cases. The two sources are LexisNexis and WestLaw Connect. Data is in .rtf format. This data source consists of the full text of 8170 cases. These 8170 cases consist of 2195 cases from WestLaw; and 5975 cases from LexisNexis. This data source is roughly 50,000 pages long. Each case consists of a case summary, Regulations and Rules, counsel, Reasons for Judgment and a conclusion.
 ### Expected Deliverables
-##### Overall Deliverables
+#### Overall Deliverables
 In general, the question our project hopes to answer is how negligence payouts have been changing since the year 2000 in BC. Our core deliverable for the project is to pull out relevant fields from a collection of negligence cases. Relevant fields include things like the amount of damages awarded and what type of damage was awarded. It will also include whether the case found there to be contributory negligence. The full list of possible fields to extract can be found below.
-##### Potential Deliverables
+#### Potential Deliverables
 Depending on how challenging the dataset is to work with there is potential to improve upon our single core deliverable. We can potentially do some analysis of the data we have pulled out such as tracking how damages change year over year in things such as payout amounts, successful cases, total cases, etc.
 Another potential deliverable is to be able to provide a user-friendly application that is able to parse legal documents that are in a similar format to extract the same information for future cases. This would be very useful for use in the future when there are more cases that are publicly reported. This would allow a non-technical user to continue to track how negligence cases in BC change over time.
 Lastly, given the time it is also possible to create a web interface for the data we extract. The web interface would allow for individuals to be able to search and filter through the cases.
 As the capstone project proceeds we will keep in touch with our capstone partner to determine which of these potential deliverables is most useful for them. This allows us to keep an open mind about what to do after our initial data extraction problem has been dealt with.
-##### Information Extraction Fields
+#### Information Extraction Fields
 Below is a comprehensive list of fields we will attempt to extract from the case data. Currently we do not know which of these items will be able to be pulled out of the data with minimal error but our plan is to try to cover as many of these fields as possible.
 Per case we will extract:
 - Case Number (String)
