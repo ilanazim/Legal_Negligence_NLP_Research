@@ -32,7 +32,7 @@ Zipped dataset folder in .txt format
 
 ### [Docs: ](https://github.ubc.ca/nikihm/Capstone-project/tree/master/Docs)
 
-#### [Project-plan.pdf: ](https://github.ubc.ca/nikihm/Capstone-project/tree/master/Docs) British Columbia Judicial Decisions Analysis Project plan in pdf format
+#### [Project-plan.pdf: ](https://github.ubc.ca/nikihm/Capstone-project/blob/master/Docs/Project-Plan.pdf) British Columbia Judicial Decisions Analysis Project plan in pdf format
 
 #### [Project-plan.md: ](https://github.ubc.ca/nikihm/Capstone-project/blob/master/Docs/project-plan.md) British Columbia Judicial Decisions Analysis Project plan in markdown format
 
