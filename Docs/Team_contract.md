@@ -1,0 +1,14 @@
+## MDS-CL Capstone Team Work Contract
+#### Group Members: Ilana, Niki, and Ravi
+### Project Governance
+Our team will not have a single project manager and we will make decisions regarding the project together. We have an odd number of group members which allows us to put issues to a vote if we have disagreement within the team.
+The GitHub repo was created by @nikihm and merge requests are to be monitored by all group members. Group members should ask a different group member to review their pull requests before files are merged to minimize any technical problems.
+### Work Distribution & Group Expectations
+Our team is expected to all put in an equal amount of effort & time into the project. We will attempt to divide up the work so that each team member will spend roughly the same amount of time each week on the project. If a specific group member may have spent more or less time during a certain week we hope to be able to adjust for the following weeks to keep things as evenly distributed as possible.
+If task(s) cannot be delegated or divided and needs input from all members we will screenshare and have a group call to work on these tasks as a team.
+### Meetings
+Meetings with the expert subject matter and Julian will occur weekly on Fridays from 10-11.  We will have additional technical meetings with Julian once weekly on Wednesdays at 10-11. The three of us will also meet on Tuesdays to touch base on progress and technical challenges prior to meeting with Julain. We will determine a set of goals each week and outline how we will divide tasks amongst team members for the coming week. We will also informally communicate daily to give small updates about progress to group members. This plan can be adjusted if we begin to feel our communication is hindering our projects performance.
+Our primary communication will be done in a Slack group due to not being able to meet in person anymore. We will post any updates, questions, or useful information into the Slack group. We expect group members to check Slack regularly and reply within around 6 hours if their input is needed. We will also type out what each group member is expected to do for the week into Slack so we all have a common place to refer to for who should be doing what to minimize confusion.
+### Handling Member Unavailability
+We do not expect group members to be available 24/7 during the project as each person has their own personal lives. We will always distribute work during our online meetings and use Slack to keep communicating during the week.
+We will make it clear to each group member what the deliverable for them is so they have time to ask questions during the week because it may be too late if they wait until the weekend and the other group members have plans and are busy to help out. We expect team members to reach out early during the week if they're facing any individual problems so the other members can accommodate.
