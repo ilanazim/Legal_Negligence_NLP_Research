@@ -10,17 +10,20 @@ In this project we are trying to analyze B.C. court negligence cases from the pa
 
 #### [DOCX to TXT format.ipynb](https://github.ubc.ca/nikihm/Capstone-project/blob/master/code/DOCX%20to%20TXT%20format.ipynb): Notebook to convert DOCX formated files to .TXT formated files
 
-#### [Information Extraction.ipynb](https://github.ubc.ca/nikihm/Capstone-project/blob/master/code/Information%20Extraction.ipynb): Notebook to extract information. an example of a case information extraction:
+#### [Information Extraction.ipynb](https://github.ubc.ca/nikihm/Capstone-project/blob/master/code/Information%20Extraction.ipynb): Notebook to extract information. 
 
-{'case_number': '50 of 1',
- 'case_title': 'Madill v. Sithivong, [2010] B.C.J. No. 2603',
- 'year': '2010',
- 'registry': 'Chilliwack',
- 'judge': 'N.E. Morrison J.',
- 'decision_length': '213',
- 'multiple_defendants': 'Y',
- 'contributory_negligence_raised': True,
- 'written_decision': True}
+An example of a case information extraction:
+
+{**'case_number'**: '50 of 1',
+ **'case_title'**: 'Madill v. Sithivong, [2010] B.C.J. No. 2603',
+ **'year'**: '2010',
+ **'registry'**: 'Chilliwack',
+ **'judge'**: 'N.E. Morrison J.',
+ **'decision_length'**: '213',
+ **'multiple_defendants'**: 'Y',
+ **'contributory_negligence_raised'**: True,
+ **'written_decision'**: True,
+ **'Plaintiff_wins'**: True}
 
 ### [Data:](https://github.ubc.ca/nikihm/Capstone-project/tree/master/data)
 Zipped dataset folder in .txt format
