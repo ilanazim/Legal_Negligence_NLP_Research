@@ -37,7 +37,7 @@ An example of a case information extraction:
 
 An example of in text annotation:
 
-Plaintiff required to give up skating instructor job — Plaintiff's non-pecuniary damages of \<damage type = 'non pecuniary'>\$75,000\<\/damage\> were deducted by 10 per cent to reflect pre-existing condition and subsequent knee injury — Damages of <damage type = 'future wage loss'>\$18,000</damage> awarded for loss of capacity and <damage type = 'past wage loss'>\$13,058</damage> for loss of income.
+Plaintiff's was awarded woth non-pecuniary damages of \<damage type = 'non pecuniary'\>\$75,000\</damage\> 
 
 #### [Case-Annotation.xlsx: ](https://github.ubc.ca/nikihm/Capstone-project/blob/master/data/annotations/Case-Annotation.xlsx) Overal annotation of each case.
 
