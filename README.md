@@ -10,9 +10,11 @@ In this project we are trying to analyze B.C. court negligence cases from the pa
 
 ### [Code: ](https://github.ubc.ca/nikihm/Capstone-project/tree/master/code)
 
+#### [Experimental-notebooks: ](https://github.ubc.ca/nikihm/Capstone-project/tree/master/code/experimental-notebooks) Series of .ipynb notebooks for each persons experiment with the project
+
 #### [DOCX to TXT format.ipynb: ](https://github.ubc.ca/nikihm/Capstone-project/blob/master/code/DOCX%20to%20TXT%20format.ipynb): Notebook to convert DOCX formated files to .TXT formated files
 
-#### [Information Extraction.ipynb: ](https://github.ubc.ca/nikihm/Capstone-project/blob/master/code/Information%20Extraction.ipynb) Notebook to extract information. 
+#### [Information Extraction.ipynb: ](https://github.ubc.ca/nikihm/Capstone-project/blob/master/code/Information%20Extraction.ipynb) Notebook with extracting information code. 
 
 An example of a case information extraction:
 
@@ -28,7 +30,16 @@ An example of a case information extraction:
  **'Plaintiff_wins'**: True}
 
 ### [Data: ](https://github.ubc.ca/nikihm/Capstone-project/tree/master/data)
-Zipped dataset folder in .txt format
+
+#### [annotations: ] 130 Annotated data.
+
+##### [all_annotations.txt: ](https://github.ubc.ca/nikihm/Capstone-project/blob/master/data/annotations/all_annotations.txt) In text annotation using xml tags
+
+An example of in text annotation:
+
+Plaintiff required to give up skating instructor job — Plaintiff's non-pecuniary damages of \<damage type = 'non pecuniary'>\$75,000\<\/damage\> were deducted by 10 per cent to reflect pre-existing condition and subsequent knee injury — Damages of <damage type = 'future wage loss'>\$18,000</damage> awarded for loss of capacity and <damage type = 'past wage loss'>\$13,058</damage> for loss of income.
+
+##### [Case-Annotation.xlsx: ](https://github.ubc.ca/nikihm/Capstone-project/blob/master/data/annotations/Case-Annotation.xlsx) Overal annotation of each case.
 
 ### [Docs: ](https://github.ubc.ca/nikihm/Capstone-project/tree/master/Docs)
 
