@@ -867,7 +867,7 @@ def extract_features(match, case, pattern, context_length = 5, purpose = 'train'
     # Used to get rid of damage tags within context around our match
     # We want to avoid getting half a damage tag else it wont be removed
     # So we get more than we need.
-    start_tokenized = ' '.join(case[:start_idx].split()[context_length*3:])
+    start_tokenized = ' '.join(case[:start_idx].split()[-context_length*3:])
     end_tokenized = ' '.join(case[end_idx:].split()[:context_length*3])
 
     if purpose == 'train':
@@ -1214,4 +1214,149 @@ def plaintiff_wins(line):
                 else:
                     return "OpenCase"
 
+def train_CN_classifier(path, clf = MultinomialNB()):
+    '''Trains a classifier based on the given training data path
+    Arguments:
+    path (String) - Path to .txt containing training data
+    clf - untrained sklearn classifier, ie MultinomialNB()
+    Returns:
+    model (sklearn model) - Trained model
+    vectorizer (sklearn DictVectorizer) - fit-transformed vectorizer
+    '''
+    tag_extractor = re.compile('''<percentage type ?= ?['"](.*?)['"]> ?(\$?.*?) ?<\/percentage>''')
+    stop_words = set(stopwords.words('english'))
+    with open(path, encoding='utf-8') as document:
+        document_data = document.read()
+    document_data = document_data.split('End of Document\n')
+    examples_per_case = [] # Each element contains all examples in a case
+    answers_per_case = [] # Each element contains all answers in a case 
+    num_cases = len(document_data)
+    for i in range(len(document_data)):
+        print('Reading training data and extracting features...', i / num_cases * 100, '%', end='\r')
+        case = document_data[i]
+        case = case.strip() # Make sure to strip!
+        if len(case) == 0: # Skip empty lines
+            continue
+        lines = case.split('\n')
+        case_title = lines[0]
+        try:
+            case_type = lines[1]
+        except:
+            print(case)
 
+        #if case_title.startswith('Chamberlain v. Pro'):
+        #    print('Hit last train case\n\n\n')
+        #    break
+        # lower case and remove stopwords
+        
+        case = ' '.join([word for word in case.lower().split() if word not in stop_words])
+        case_examples = []
+        case_answers = []
+        if filter_unwanted_cases(case, case_title, case_type):
+            matches = tag_extractor.finditer(case) # Extract all <damage ...>$x</damage> tags used for training
+            for match in matches:
+                features, answer = extract_CN_features(match, case, tag_extractor)
+                case_examples.append(features)
+                case_answers.append(answer)
+        if len(case_examples) > 0 and len(case_answers) > 0:
+            examples_per_case.append(case_examples)
+            answers_per_case.append(case_answers)
+        else:
+            print('Didnt find any tags in', case_title)
+    print('\nVectorizing...')    
+    vectorizer = DictVectorizer()
+    feats = list(chain.from_iterable(examples_per_case)) # Puts it into one big list
+    X = vectorizer.fit_transform(feats)
+    y = list(chain.from_iterable(answers_per_case))
+    print('Tag Distribution')
+    dist = Counter(y)
+    print(dist)
+    print('Cross validation evaluation...')
+    
+    #print('Scores (F1-MACRO):', np.mean(cross_val_score(clf, X, y, cv = 5, scoring = 'f1_macro')))
+    #print('Scores (F1-MICRO):', np.mean(cross_val_score(clf, X, y, cv = 5, scoring = 'f1_micro')))
+    #print('Scores (F1-WEIGHTED):', np.mean(cross_val_score(clf, X, y, cv = 5, scoring = 'f1_weighted')))
+    
+    y_pred = cross_val_predict(clf, X, y, cv=3)
+    print(classification_report(y, y_pred))
+    print('Training final model...')
+    clf.fit(X, y)
+    return clf, vectorizer
+
+#wordnet_lemmatizer = WordNetLemmatizer()
+def extract_CN_features(match, case, pattern, context_length = 10, purpose = 'train'):
+    '''Given a match will return the features associated with the specific example
+    Extracts the examples by finding the damage annotation tags
+    in the form <damage type = "TYPE">$5000</damage>
+    Arguments:
+    match (Match Object) - Match object with the type as group 1 and value as group 2 if purpose = train, otherwise match group 0 is the value
+    case (str) - The case data in string format
+    pattern (str, regex pattern) - The regex pattern being used to find damages.
+                                      Used to remove the tags in features using context around value.
+    [Optional] context_length (int) - The number of words to use around the value for context
+    [Optional] purpose (str) - Default is 'train', used to determine pattern type
+    Returns:
+    features (dict) - Dictionary containing each feature for the current match
+    damage_type (str) or None - The type of damage associated with the value if purpose = 'train'
+    '''
+    features = dict()
+    if purpose == 'train':
+        damage_type = match.group(1).strip()
+        damage_value = match.group(2).strip()
+    else:
+        damage_type = None
+        damage_value = match.group(0).strip()
+    start_idx = match.start()
+    end_idx = match.end()
+    # Get 3 * Context Length on each side 
+    # Used to get rid of damage tags within context around our match
+    # We want to avoid getting half a damage tag else it wont be removed
+    # So we get more than we need.
+    start_tokenized = ' '.join(case[:start_idx].split()[-context_length*3:])
+    end_tokenized = ' '.join(case[end_idx:].split()[:context_length*3])
+    if purpose == 'train':
+        # Remove damage tags in context around match
+        start_matches = pattern.finditer(start_tokenized)
+        for s in start_matches:
+            start_tokenized = start_tokenized.replace(s.group(0), s.group(2))
+        end_matches = pattern.finditer(end_tokenized)
+        for e in end_matches:
+            end_tokenized = end_tokenized.replace(e.group(0), e.group(2))
+    # Reconstruct sentence
+    tokens = start_tokenized + " " + damage_value + " " + end_tokenized 
+    value_start_idx = len(start_tokenized.split()) # Location of value in relation to sentence (token level)
+    if len(damage_value.split()) > 1: # Deals with problems like '2 million' (where value is multiple tokens)
+        value_end_idx = value_start_idx + len(damage_value.split()) - 1
+    else:
+        value_end_idx = value_start_idx
+    tokens = tokens.split()
+    # Features: BOW before, BOW after, BOW, contributory negligence in text, plaintiff/defendant name matches, value, location
+    start_boundary = value_start_idx - context_length if value_start_idx - context_length >= 0 else 0
+    end_boundary = value_end_idx + context_length + 1 if value_end_idx + context_length + 1 < len(tokens) else len(tokens)
+    features_bow_b = dict(Counter(tokens[start_boundary : value_start_idx]))
+    features_bow_b = {k+'@Before': v for k, v in features_bow_b.items()}
+    features_bow_a = dict(Counter(tokens[value_end_idx + 1 : end_boundary]))
+    features_bow_a = {k+'@After': v for k, v in features_bow_a.items()}
+    features.update(features_bow_b)
+    features.update(features_bow_a)
+    features.update(Counter(tokens))
+
+    features['contributory_negligence'] = True if 'contributory negligence' in case.lower() else False
+    plaintiff_defendant_pattern = r'([A-Za-z|-|\.]+(:? \(.*\))?)+ v\. ([A-Za-z|-]+)+' # group 1 is plaintiff group 2 is defendant
+    if re.search(plaintiff_defendant_pattern, case.split('\n')[0]):
+        plaitiff_defendant = re.search(plaintiff_defendant_pattern, case.split('\n')[0]).groups() # tuple (plaintiff, defendant)
+    else:
+        plaitiff_defendant = ('Plaintiff', 'Defendant')
+    plaintiff_split = [word.lower() for word in plaitiff_defendant[0].split()]
+    defendant_split = [word.lower() for word in plaitiff_defendant[-1].split()]
+    plaintiff_entities = ['plaintiff'] + plaintiff_split
+    defendant_entities = ['defendant'] + defendant_split
+    features['plaintiff_mentioned'] = True if any(item in plaintiff_entities for item in tokens) else False
+    features['defendant_mentioned'] = True if any(item in defendant_entities for item in tokens) else False
+    features['value'] = damage_value
+    features['start_idx_ratio'] = match.start()/len(case)
+
+    if purpose == 'train':
+        return features, damage_type
+    else:
+        return features, damage_value
