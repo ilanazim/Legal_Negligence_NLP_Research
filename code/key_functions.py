@@ -483,6 +483,29 @@ def filter_unwanted_cases(case, case_title, case_type):
     
     if 'R. v.' in case_title or '(Re)' in case_title: # Skip crown cases, Skip (Re) cases
         return False
+    
+    # Third party cases
+    if 'parties' in case.lower() and 'third party procedure' in case.lower():
+        return False
+    
+    # Disposition without trial cases
+    if 'disposition without trial' in case.lower() and 'civil procedure' in case.lower():
+        return False
+    
+    # Applications & Motions brought to the judge
+    if 'civil procedure' in case.lower() and 'applications and motions' in case.lower():
+        return False
+    else:
+        if 'applications and motions' in case.lower() and 'practice' in case.lower():
+            return False
+        
+    # Right to a jury case
+    if 'right to a jury' in case.lower() and 'juries and jury trials' in case.lower():
+        return False
+    
+    # Adding/Subbing Parties case
+    if 'adding or substituting parties' in case.lower():
+        return False
 
     # Skip client/solicitor cases (not same as plaintiff/defendant)
     regex_client_solicitor = re.search(r'(Between.*([C|c]lient[s]?).*([S|s]olicitor[s]?|[L|l]awyer[s]?))', case)
@@ -811,7 +834,7 @@ def train_classifier(path, clf = MultinomialNB()):
             
             matches = tag_extractor.finditer(case) # Extract all <damage ...>$x</damage> tags used for training
             for match in matches:
-                features, answer = extract_features(match, case, tag_extractor)
+                features, answer = extract_features(match, case, tag_extractor, CN_tag_extractor)
                 # if value is found in case summary, replace start_idx_ratio with 1
                 if summary:
                     if match.group(0) in summary.lower():
@@ -845,7 +868,7 @@ def train_classifier(path, clf = MultinomialNB()):
     clf.fit(X, y)
     return clf, vectorizer
 
-def extract_features(match, case, pattern, context_length = 5, purpose = 'train'):
+def extract_features(match, case, dmg_pattern, cn_pattern = None, context_length = 5, purpose = 'train'):
     '''Given a match will return the features associated with the specific example
     Extracts the examples by finding the damage annotation tags
     in the form <damage type = "TYPE">$5000</damage>
@@ -855,6 +878,7 @@ def extract_features(match, case, pattern, context_length = 5, purpose = 'train'
     case (str) - The case data in string format
     pattern (str, regex pattern) - The regex pattern being used to find damages.
                                       Used to remove the tags in features using context around value.
+    cn_pattern (str, regex pattern) - The regex pattern being used to find percentages.
     [Optional] context_length (int) - The number of words to use around the value for context
     [Optional] purpose (str) - Default is 'train', used to determine pattern type
     
@@ -882,13 +906,23 @@ def extract_features(match, case, pattern, context_length = 5, purpose = 'train'
     end_tokenized = ' '.join(case[end_idx:].split()[:context_length*3])
 
     if purpose == 'train':
-        # Remove damage tags in context around match
-        start_matches = pattern.finditer(start_tokenized)
-        for s in start_matches:
-            start_tokenized = start_tokenized.replace(s.group(0), s.group(2))
-        end_matches = pattern.finditer(end_tokenized)
-        for e in end_matches:
-            end_tokenized = end_tokenized.replace(e.group(0), e.group(2))
+        if cn_pattern is None:
+            print('Error: Didnt include percentage regex')
+            return None
+        # Remove damage tags AND percentage tags in context around match
+        start_matches_dmg = dmg_pattern.finditer(start_tokenized)
+        for s_dmg in start_matches_dmg:
+            start_tokenized = start_tokenized.replace(s_dmg.group(0), s_dmg.group(2))
+        start_matches_cn = cn_pattern.finditer(start_tokenized)
+        for s_cn in start_matches_cn:
+            start_tokenized = start_tokenized.replace(s_cn.group(0), s_cn.group(2))
+
+        end_matches_dmg = dmg_pattern.finditer(end_tokenized)
+        for e_dmg in end_matches_dmg:
+            end_tokenized = end_tokenized.replace(e_dmg.group(0), e_dmg.group(2))
+        end_matches_cn = cn_pattern.finditer(end_tokenized)
+        for e_cn in end_matches_cn:
+            end_tokenized = end_tokenized.replace(e_cn.group(0), e_cn.group(2))
 
     # Reconstruct sentence
     tokens = start_tokenized + " " + damage_value + " " + end_tokenized 
@@ -1174,56 +1208,51 @@ def plaintiff_wins(line):
     plaintiff_dict = {}
     lines = line.strip().split("\n")
     name = lines[0]        
-    #check if it's a British columbia case    
-    if "B.C.J" in name:
-#         #check if it's not a crown case    
-#         if 'R. v.' in name or '(Re)' in name:
-#             continue
-            # regex search for keyword HELD in cases, which determines if case was allowed or dismissed
-        HELD = re.search(r'HELD(.+)?', line)
-        if HELD:
-            matched = HELD.group(0)  
-            # regex searching for words such as liablity, liable, negligance, negligant, convicted, convict in matched
-            liable = re.search(r'(l|L)iab(.+)?.+|(neglige(.+)?)|(convict(.+)?)', matched)
-            # regex searching fot dissmiss/dissmissed/adjourned, negative in matched
-            dismiss = re.search(r'(dismiss(.+)?.+)|(adjourned.+?)|(negative(.+)?)', matched)
-            # regex searching for damage/Damage/fault/faulty
-            damage = re.search(r'(D|d)amage(.+)?.+|(fault(.+)?)', matched)
-            if "allowed" in matched or "favour" in matched or "awarded" in matched or "granted" in matched or "accepted" in matched or "entitled" in matched or "guilty" in matched or liable or damage:
-                return "Y"
+    # regex search for keyword HELD in cases, which determines if case was allowed or dismissed
+    HELD = re.search(r'HELD(.+)?', line)
+    if HELD:
+        matched = HELD.group(0)  
+        # regex searching for words such as liablity, liable, negligance, negligant, convicted, convict in matched
+        liable = re.search(r'(l|L)iab(.+)?.+|(neglige(.+)?)|(convict(.+)?)', matched)
+        # regex searching fot dissmiss/dissmissed/adjourned, negative in matched
+        dismiss = re.search(r'(dismiss(.+)?.+)|(adjourned.+?)|(negative(.+)?)', matched)
+        # regex searching for damage/Damage/fault/faulty
+        damage = re.search(r'(D|d)amage(.+)?.+|(fault(.+)?)', matched)
+        if "allowed" in matched or "favour" in matched or "awarded" in matched or "granted" in matched or "accepted" in matched or "entitled" in matched or "guilty" in matched or liable or damage:
+            return "Y"
 
-            elif dismiss:
+        elif dismiss:
+            return "N"
+
+    else:
+        if line and name not in plaintiff_dict :
+
+            last_paras = lines[-5]+" "+lines[-4]+" "+lines[-3]+" "+lines[-2]
+            #regex searches for pattern of award ... plaintiff ...
+            awarded =  re.search(r'award(.+)?.+?(plaintiff(.+)?)?', last_paras)
+            #regex searches for pattern of plaintiff/defendant/applicant....entitled/have...costs
+            entiteled = re.search(r'(plaintiff|defendant.?|applicant)(.+)?(entitle(.)?(.+)?|have).+?cost(.+)?', last_paras)
+            #regex searches for pattern of successful...(case)
+            successful = re.search(r'successful(.+)?.+?', last_paras)
+            #regex searches for dismiss....
+            dismiss = re.search(r'(dismiss(.+)?.+)|(adjourned.+?)|(negative(.+)?)', last_paras)
+            costs = re.search(r'costs.+?(award(.+)?|cause).+?', last_paras)
+            damage = re.search(r'(D|d)amage(.+)?.+|(fault(.+)?)', last_paras)
+
+            if dismiss and "not dismissed" not in last_paras:
                 return "N"
-
-        else:
-            if line and name not in plaintiff_dict :
-
-                last_paras = lines[-5]+" "+lines[-4]+" "+lines[-3]+" "+lines[-2]
-                #regex searches for pattern of award ... plaintiff ...
-                awarded =  re.search(r'award(.+)?.+?(plaintiff(.+)?)?', last_paras)
-                #regex searches for pattern of plaintiff/defendant/applicant....entitled/have...costs
-                entiteled = re.search(r'(plaintiff|defendant.?|applicant)(.+)?(entitle(.)?(.+)?|have).+?cost(.+)?', last_paras)
-                #regex searches for pattern of successful...(case)
-                successful = re.search(r'successful(.+)?.+?', last_paras)
-                #regex searches for dismiss....
-                dismiss = re.search(r'(dismiss(.+)?.+)|(adjourned.+?)|(negative(.+)?)', last_paras)
-                costs = re.search(r'costs.+?(award(.+)?|cause).+?', last_paras)
-                damage = re.search(r'(D|d)amage(.+)?.+|(fault(.+)?)', last_paras)
-
-                if dismiss and "not dismissed" not in last_paras:
-                    return "N"
-                elif damage:
-                    return "Y"
-                elif awarded:
-                    return "Y"
-                elif entiteled:
-                    return "Y"
-                elif successful:
-                    return "Y"
-                elif costs:
-                    return "Y"
-                else:
-                    return "OpenCase"
+            elif damage:
+                return "Y"
+            elif awarded:
+                return "Y"
+            elif entiteled:
+                return "Y"
+            elif successful:
+                return "Y"
+            elif costs:
+                return "Y"
+            else:
+                return "OpenCase"
 
 def train_CN_classifier(path, clf = MultinomialNB()):
     '''Trains a classifier based on the given training data path
@@ -1234,7 +1263,9 @@ def train_CN_classifier(path, clf = MultinomialNB()):
     model (sklearn model) - Trained model
     vectorizer (sklearn DictVectorizer) - fit-transformed vectorizer
     '''
-    tag_extractor = re.compile('''<percentage type ?= ?['"](.*?)['"]> ?(\$?.*?) ?<\/percentage>''')
+    tag_extractor = re.compile('''<damage type ?= ?['"](.*?)['"]> ?(\$?.*?) ?<\/damage>''')
+    CN_tag_extractor = re.compile('''<percentage type ?= ?['"](.*?)['"]> ?(\$?.*?) ?<\/percentage>''')
+
     stop_words = set(stopwords.words('english'))
     with open(path, encoding='utf-8') as document:
         document_data = document.read()
@@ -1266,7 +1297,7 @@ def train_CN_classifier(path, clf = MultinomialNB()):
         if filter_unwanted_cases(case, case_title, case_type):
             matches = tag_extractor.finditer(case) # Extract all <damage ...>$x</damage> tags used for training
             for match in matches:
-                features, answer = extract_CN_features(match, case, tag_extractor)
+                features, answer = extract_CN_features(match, case, tag_extractor, CN_tag_extractor)
                 case_examples.append(features)
                 case_answers.append(answer)
         if len(case_examples) > 0 and len(case_answers) > 0:
@@ -1295,15 +1326,16 @@ def train_CN_classifier(path, clf = MultinomialNB()):
     return clf, vectorizer
 
 #wordnet_lemmatizer = WordNetLemmatizer()
-def extract_CN_features(match, case, pattern, context_length = 10, purpose = 'train'):
+def extract_CN_features(match, case, dmg_pattern, cn_pattern = None, context_length = 10, purpose = 'train'):
     '''Given a match will return the features associated with the specific example
     Extracts the examples by finding the damage annotation tags
     in the form <damage type = "TYPE">$5000</damage>
     Arguments:
     match (Match Object) - Match object with the type as group 1 and value as group 2 if purpose = train, otherwise match group 0 is the value
     case (str) - The case data in string format
-    pattern (str, regex pattern) - The regex pattern being used to find damages.
+    dmg_pattern (str, regex pattern) - The regex pattern being used to find damages.
                                       Used to remove the tags in features using context around value.
+    cn_pattern (str, regex pattern) - The regex pattern being used to find percentages.
     [Optional] context_length (int) - The number of words to use around the value for context
     [Optional] purpose (str) - Default is 'train', used to determine pattern type
     Returns:
@@ -1321,18 +1353,28 @@ def extract_CN_features(match, case, pattern, context_length = 10, purpose = 'tr
     end_idx = match.end()
     # Get 3 * Context Length on each side 
     # Used to get rid of damage tags within context around our match
-    # We want to avoid getting half a damage tag else it wont be removed
+    # We want to avoid getting half a damage/percentage tag else it wont be removed
     # So we get more than we need.
     start_tokenized = ' '.join(case[:start_idx].split()[-context_length*3:])
     end_tokenized = ' '.join(case[end_idx:].split()[:context_length*3])
     if purpose == 'train':
-        # Remove damage tags in context around match
-        start_matches = pattern.finditer(start_tokenized)
-        for s in start_matches:
-            start_tokenized = start_tokenized.replace(s.group(0), s.group(2))
-        end_matches = pattern.finditer(end_tokenized)
-        for e in end_matches:
-            end_tokenized = end_tokenized.replace(e.group(0), e.group(2))
+        if cn_pattern is None:
+            print('Error: Didnt include percentage regex')
+            return None
+        # Remove damage tags AND percentage in context around match
+        start_matches_dmg = dmg_pattern.finditer(start_tokenized)
+        for s_dmg in start_matches_dmg:
+            start_tokenized = start_tokenized.replace(s_dmg.group(0), s_dmg.group(2))
+        start_matches_cn = cn_pattern.finditer(start_tokenized)
+        for s_cn in start_matches_cn:
+            start_tokenized = start_tokenized.replace(s_cn.group(0), s_cn.group(2))
+
+        end_matches_dmg = dmg_pattern.finditer(end_tokenized)
+        for e_dmg in end_matches_dmg:
+            end_tokenized = end_tokenized.replace(e_dmg.group(0), e_dmg.group(2))
+        end_matches_cn = cn_pattern.finditer(end_tokenized)
+        for e_cn in end_matches_cn:
+            end_tokenized = end_tokenized.replace(e_cn.group(0), e_cn.group(2))
     # Reconstruct sentence
     tokens = start_tokenized + " " + damage_value + " " + end_tokenized 
     value_start_idx = len(start_tokenized.split()) # Location of value in relation to sentence (token level)
