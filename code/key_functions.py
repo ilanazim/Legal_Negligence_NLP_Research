@@ -483,6 +483,29 @@ def filter_unwanted_cases(case, case_title, case_type):
     
     if 'R. v.' in case_title or '(Re)' in case_title: # Skip crown cases, Skip (Re) cases
         return False
+    
+    # Third party cases
+    if 'parties' in case.lower() and 'third party procedure' in case.lower():
+        return False
+    
+    # Disposition without trial cases
+    if 'disposition without trial' in case.lower() and 'civil procedure' in case.lower():
+        return False
+    
+    # Applications & Motions brought to the judge
+    if 'civil procedure' in case.lower() and 'applications and motions' in case.lower():
+        return False
+    else:
+        if 'applications and motions' in case.lower() and 'practice' in case.lower():
+            return False
+        
+    # Right to a jury case
+    if 'right to a jury' in case.lower() and 'juries and jury trials' in case.lower():
+        return False
+    
+    # Adding/Subbing Parties case
+    if 'adding or substituting parties' in case.lower():
+        return False
 
     # Skip client/solicitor cases (not same as plaintiff/defendant)
     regex_client_solicitor = re.search(r'(Between.*([C|c]lient[s]?).*([S|s]olicitor[s]?|[L|l]awyer[s]?))', case)
