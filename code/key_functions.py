@@ -770,6 +770,7 @@ def train_classifier(path, clf = MultinomialNB()):
     vectorizer (sklearn DictVectorizer) - fit-transformed vectorizer
     '''
     tag_extractor = re.compile('''<damage type ?= ?['"](.*?)['"]> ?(\$?.*?) ?<\/damage>''')
+    CN_tag_extractor = re.compile('''<percentage type ?= ?['"](.*?)['"]> ?(\$?.*?) ?<\/percentage>''')
     stop_words = set(stopwords.words('english'))
     
     with open(path, encoding='utf-8') as document:
@@ -780,12 +781,22 @@ def train_classifier(path, clf = MultinomialNB()):
     examples_per_case = [] # Each element contains all examples in a case
     answers_per_case = [] # Each element contains all answers in a case 
     num_cases = len(document_data)
+    
     for i in range(len(document_data)):
         print('Reading training data and extracting features...', i / num_cases * 100, '%', end='\r')
         case = document_data[i]
+        CN_match = CN_tag_extractor.finditer(case) # Extract all <percentage ...>$x</percentage> tags used for training
+        
+        for percentage in CN_match: #iterating over the matches for <percentage>
+            percentage_value = percentage.group(2)
+            #replacing the whole <percentage tag with just the percentage value
+            case = CN_tag_extractor.sub(percentage_value, case)
+            
         case = case.strip() # Make sure to strip!
         if len(case) == 0: # Skip empty lines
             continue
+        
+        
         
         lines = case.split('\n')
         case_title = lines[0]
