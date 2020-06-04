@@ -277,7 +277,7 @@ def rule_based_damage_extraction(doc, min_score = 0.9, max_match_len_split = 10)
         if not value_mapped:
             value_mapped = assign_damage_to_category(extracted_value, special_damage_keywords, match, score, matches, 'Special', damages, repetition_detection, repetition_key = ('special',))
         if not value_mapped:
-            value_mapped = assign_damage_to_category(extracted_value, non_pecuniary_damage_keywords, match, score, matches, 'Non-pecuniary', damages, repetition_detection, repetition_key = ('non','pecuniary'))
+            value_mapped = assign_damage_to_category(extracted_value, non_pecuniary_damage_keywords, match, score, matches, 'Non pecuniary', damages, repetition_detection, repetition_key = ('non','pecuniary'))
         if not value_mapped:
             value_mapped = assign_damage_to_category(extracted_value, aggravated_damage_keywords, match, score, matches, 'Aggravated', damages, repetition_detection, repetition_key = ('aggravated',))
         if not value_mapped:
@@ -291,19 +291,19 @@ def rule_based_damage_extraction(doc, min_score = 0.9, max_match_len_split = 10)
                     if is_best_score(score, matches, keywords):
                         if extracted_value not in repetition_detection[('total',)]:
                             damages['Pecuniary Total'] = damages['Special'] + damages['General'] + damages['Punitive'] + damages['Aggravated'] + damages['Future Care']
-                            damages['Total'] = damages['Pecuniary Total'] + damages['Non-pecuniary']
+                            damages['Total'] = damages['Pecuniary Total'] + damages['Non pecuniary']
                             if damages['Total'] == 0:
                                 total = extracted_value
                                 repetition_detection[('total',)].add(extracted_value)
                         
     damages['Pecuniary Total'] = damages['Special'] + damages['General'] + damages['Punitive'] + damages['Aggravated'] + damages['Future Care']
-    damages['Total'] = damages['Pecuniary Total'] + damages['Non-pecuniary']
+    damages['Total'] = damages['Pecuniary Total'] + damages['Non pecuniary']
     
     if damages['Total'] == 0 and total is not None: # Only use the "total" if we couldnt find anything else!
         damages['Total'] = total
         damages['General'] = total
         
-    columns = ['Total', 'Pecuniary Total', 'Non-pecuniary', 'Special', 'General', 'Punitive', 'Aggravated', 'Future Care']
+    columns = ['Total', 'Pecuniary Total', 'Non pecuniary', 'Special', 'General', 'Punitive', 'Aggravated', 'Future Care']
     for c in columns:
         damages[c] = None if damages[c] == 0 else damages[c]
     
@@ -1052,7 +1052,7 @@ def rule_based_convert_cases_to_DF(cases):
         lists['Year'].append(case['year'])
         lists['Total Damage'].append(case['damages']['Total'] if case['damages'] != None else None)
         lists['Total Pecuniary'].append(case['damages']['Pecuniary Total'] if case['damages'] != None else None)
-        lists['Non Pecuniary'].append(case['damages']['Non-pecuniary'] if case['damages'] != None else None)
+        lists['Non Pecuniary'].append(case['damages']['Non pecuniary'] if case['damages'] != None else None)
         lists['General'].append(case['damages']['General'] if case['damages'] != None else None)
         lists['Special'].append(case['damages']['Special'] if case['damages'] != None else None)
         lists['Punitive'].append(case['damages']['Punitive'] if case['damages'] != None else None)
