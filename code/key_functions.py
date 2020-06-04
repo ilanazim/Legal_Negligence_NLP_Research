@@ -277,7 +277,7 @@ def rule_based_damage_extraction(doc, min_score = 0.9, max_match_len_split = 10)
         if not value_mapped:
             value_mapped = assign_damage_to_category(extracted_value, special_damage_keywords, match, score, matches, 'Special', damages, repetition_detection, repetition_key = ('special',))
         if not value_mapped:
-            value_mapped = assign_damage_to_category(extracted_value, non_pecuniary_damage_keywords, match, score, matches, 'Non-pecuniary', damages, repetition_detection, repetition_key = ('non','pecuniary'))
+            value_mapped = assign_damage_to_category(extracted_value, non_pecuniary_damage_keywords, match, score, matches, 'Non Pecuniary', damages, repetition_detection, repetition_key = ('non','pecuniary'))
         if not value_mapped:
             value_mapped = assign_damage_to_category(extracted_value, aggravated_damage_keywords, match, score, matches, 'Aggravated', damages, repetition_detection, repetition_key = ('aggravated',))
         if not value_mapped:
@@ -291,19 +291,19 @@ def rule_based_damage_extraction(doc, min_score = 0.9, max_match_len_split = 10)
                     if is_best_score(score, matches, keywords):
                         if extracted_value not in repetition_detection[('total',)]:
                             damages['Pecuniary Total'] = damages['Special'] + damages['General'] + damages['Punitive'] + damages['Aggravated'] + damages['Future Care']
-                            damages['Total'] = damages['Pecuniary Total'] + damages['Non-pecuniary']
+                            damages['Total'] = damages['Pecuniary Total'] + damages['Non Pecuniary']
                             if damages['Total'] == 0:
                                 total = extracted_value
                                 repetition_detection[('total',)].add(extracted_value)
                         
     damages['Pecuniary Total'] = damages['Special'] + damages['General'] + damages['Punitive'] + damages['Aggravated'] + damages['Future Care']
-    damages['Total'] = damages['Pecuniary Total'] + damages['Non-pecuniary']
+    damages['Total'] = damages['Pecuniary Total'] + damages['Non Pecuniary']
     
     if damages['Total'] == 0 and total is not None: # Only use the "total" if we couldnt find anything else!
         damages['Total'] = total
         damages['General'] = total
         
-    columns = ['Total', 'Pecuniary Total', 'Non-pecuniary', 'Special', 'General', 'Punitive', 'Aggravated', 'Future Care']
+    columns = ['Total', 'Pecuniary Total', 'Non Pecuniary', 'Special', 'General', 'Punitive', 'Aggravated', 'Future Care']
     for c in columns:
         damages[c] = None if damages[c] == 0 else damages[c]
     
@@ -808,18 +808,9 @@ def train_classifier(path, clf = MultinomialNB()):
     for i in range(len(document_data)):
         print('Reading training data and extracting features...', i / num_cases * 100, '%', end='\r')
         case = document_data[i]
-        CN_match = CN_tag_extractor.finditer(case) # Extract all <percentage ...>$x</percentage> tags used for training
-        
-        for percentage in CN_match: #iterating over the matches for <percentage>
-            percentage_value = percentage.group(2)
-            #replacing the whole <percentage tag with just the percentage value
-            case = CN_tag_extractor.sub(percentage_value, case)
-            
         case = case.strip() # Make sure to strip!
         if len(case) == 0: # Skip empty lines
             continue
-        
-        
         
         lines = case.split('\n')
         case_title = lines[0]
@@ -1006,7 +997,7 @@ def predict(case, clf, vectorizer):
     else:
         return []
     
-def assign_classification_damages(predictions, min_score = 0.7):
+def assign_classification_damages(predictions, min_score = 0):
     '''Helper function for rule based BCJ
     Handles assigning predictions into final damage amounts
     
@@ -1024,11 +1015,9 @@ def assign_classification_damages(predictions, min_score = 0.7):
         if ratio < min_score:
             continue
         
-        if prediction_type == 'total':
-            if max(predict_proba) > 0.8: # Max will be 'total' since it is the prediction_type
-                temporary_damages[prediction_type].append(value)
-        else:
+        if max(predict_proba) > 0.5:
             temporary_damages[prediction_type].append(value)
+
 
     # Currently not dealing with "reduction" or "total after" (or total - manually adding)
     damages['Future Care'] = temporary_damages['future care'][-1] if len(temporary_damages['future care']) != 0 \
@@ -1086,7 +1075,7 @@ def rule_based_convert_cases_to_DF(cases):
         lists['Year'].append(case['year'])
         lists['Total Damage'].append(case['damages']['Total'] if case['damages'] != None else None)
         lists['Total Pecuniary'].append(case['damages']['Pecuniary Total'] if case['damages'] != None else None)
-        lists['Non Pecuniary'].append(case['damages']['Non-pecuniary'] if case['damages'] != None else None)
+        lists['Non Pecuniary'].append(case['damages']['Non Pecuniary'] if case['damages'] != None else None)
         lists['General'].append(case['damages']['General'] if case['damages'] != None else None)
         lists['Special'].append(case['damages']['Special'] if case['damages'] != None else None)
         lists['Punitive'].append(case['damages']['Punitive'] if case['damages'] != None else None)
@@ -1295,7 +1284,7 @@ def train_CN_classifier(path, clf = MultinomialNB()):
         case_examples = []
         case_answers = []
         if filter_unwanted_cases(case, case_title, case_type):
-            matches = tag_extractor.finditer(case) # Extract all <damage ...>$x</damage> tags used for training
+            matches = CN_tag_extractor.finditer(case) # Extract all <percentage ...>$x</percentage> tags used for training
             for match in matches:
                 features, answer = extract_CN_features(match, case, tag_extractor, CN_tag_extractor)
                 case_examples.append(features)
