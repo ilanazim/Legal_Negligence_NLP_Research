@@ -602,7 +602,7 @@ def summary_tokenize(case):
     # split paragraphs on newline, paragraph number, two spaces
     summary = re.search(r'\([0-9]{1,3} paras\.\)\ncase summary\n((.*\n+?)+)(?=HELD|(Statutes, Regulations Rules Cited:)|(Counsel\n))', case, re.IGNORECASE)
     if summary:
-        return summary.group(1), summary.start(), summary.end()
+        return summary.group(1), summary.span(1)[0], summary.span(1)[1]
     else:
         return None, None, None # Must return 3 items
 
