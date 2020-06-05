@@ -112,14 +112,17 @@ def rule_based_parse_BCJ(path, damage_model = None, damage_vectorizer = None, an
             
             case_dict['plaintiff_wins'] = plaintiff_wins(case)
                         
-            if damage_model and damage_vectorizer and annotated_damages:
-                if case_title in annotated_damages:
-                    case_dict['damages'] = annotated_damages[case_title]
+            if case_dict['plaintiff_wins'] == 'Y':
+                if damage_model and damage_vectorizer and annotated_damages:
+                    if case_title in annotated_damages:
+                        case_dict['damages'] = annotated_damages[case_title]
+                    else:
+                        predictions = predict(case, damage_model, damage_vectorizer)
+                        case_dict['damages'] = assign_classification_damages(predictions)
                 else:
-                    predictions = predict(case, damage_model, damage_vectorizer)
-                    case_dict['damages'] = assign_classification_damages(predictions)
+                    case_dict['damages'] = rule_based_damage_extraction(case)  
             else:
-                case_dict['damages'] = rule_based_damage_extraction(case)
+                case_dict['damages'] = None
             
             # find a way to not use rule based to get CN successful
             percent_reduction, contributory_negligence_successful = get_percent_reduction_and_contributory_negligence_success(case_dict, case)
@@ -137,9 +140,9 @@ def rule_based_parse_BCJ(path, damage_model = None, damage_vectorizer = None, an
                 if percent_reduction_clf:
                     case_dict['percent_reduction'] = percent_reduction_clf
                 else:
-                    case_dict['percent_reduction'] = percent_reduction*0.01
+                    case_dict['percent_reduction'] = percent_reduction*0.01 if percent_reduction != None else None
             else: 
-                case_dict['percent_reduction'] = percent_reduction*0.01
+                case_dict['percent_reduction'] = percent_reduction*0.01 if percent_reduction != None else None
             case_dict['contributory_negligence_successful'] = contributory_negligence_successful
              
         
@@ -592,16 +595,16 @@ def summary_tokenize(case):
     ''' String of Entire Document and returns the document summary and HELD section.
     ---------
     Input: case (str) - string of single legal case
-    Return: summary - summary and HELD section of case (str)'''
+    Return: Tuple: summary (str)- summary and HELD section of case (str)
+                    summart start idx (int)
+                    summary end idx (int)'''
     
     # split paragraphs on newline, paragraph number, two spaces
-    summary = re.search(r'\([0-9]{1,3} paras\.\)\ncase summary\n((.*\n+?)+)(?=HELD|(Statutes, Regulations and Rules Cited:)|(Counsel\n))', case, re.IGNORECASE)
+    summary = re.search(r'\([0-9]{1,3} paras\.\)\ncase summary\n((.*\n+?)+)(?=HELD|(Statutes, Regulations Rules Cited:)|(Counsel\n))', case, re.IGNORECASE)
     if summary:
-        summary = summary.group(1)
+        return summary.group(1), summary.start(), summary.end()
     else:
-        return None
-
-    return summary
+        return None, None, None # Must return 3 items
 
 def get_context_and_float(value, text, context_length = 8, plaintiff_name = 'Plaintiff', defendant_name = 'Defendant'):
     '''Given a string value found in a body of text, 
@@ -764,7 +767,7 @@ def get_percent_reduction_and_contributory_negligence_success(case_dict, case, m
         
         if best_score == 0 or not best_percent or not contributory_negligence_successful:
             # no percents found in paragraphs - time to check summary - same process
-            summary = summary_tokenize(case)
+            summary, summary_start_idx, summary_end_idx = summary_tokenize(case)
             if summary:
                 summary = summary.lower()
                 percent_mentioned = re.findall(percent_pattern, summary, re.IGNORECASE)
@@ -845,16 +848,16 @@ def train_classifier(path, clf = MultinomialNB()):
         case_examples = []
         case_answers = []
         if filter_unwanted_cases(case, case_title, case_type):
-            summary = summary_tokenize(case)
-            # lower case and remove stopwords
+            # lower case and remove stopwords. 
             case = ' '.join([word for word in case.lower().split() if word not in stop_words])
+            summary, summary_start_idx, summary_end_idx = summary_tokenize(case)
             
             matches = tag_extractor.finditer(case) # Extract all <damage ...>$x</damage> tags used for training
             for match in matches:
                 features, answer = extract_features(match, case, tag_extractor, CN_tag_extractor)
                 # if value is found in case summary, replace start_idx_ratio with 1
                 if summary:
-                    if match.group(0) in summary.lower() and answer != 'other':
+                    if match.start() >= summary_start_idx and match.end() <= summary_end_idx and answer != 'other':
                         features['start_idx_ratio'] = 1
                     
                 case_examples.append(features)
@@ -1043,15 +1046,25 @@ def predict(case, clf, vectorizer, category='damages'):
     value_locations = []
     values = []
 
-    # lower case and remove stopwords
+    
+    
+
+    # Remove stopwords, lowercase, and update summary idx
     case = ' '.join([word for word in case.lower().split() if word not in stop_words])
+    summary, summary_start_idx, summary_end_idx = summary_tokenize(case)
     matches = value_extractor.finditer(case) # Extract all <damage ...>$x</damage> tags used for training
+
     for match in matches:
         # extract features per match found
         if category == 'damages':
             features, _ = extract_features(match, case, value_extractor, purpose = 'predict')
         else:
             features, _ = extract_CN_features(match, case, value_extractor, purpose = 'predict')
+
+        if summary:
+            if match.start() >= summary_start_idx and match.end() <= summar_end_idx:
+                features['start_idx_ratio'] = 1
+
         case_examples.append(features)
         value_locations.append(features['start_idx_ratio'])
         values.append(features['float'])
@@ -1379,19 +1392,19 @@ def train_CN_classifier(path, clf = MultinomialNB()):
         except:
             print(case)
 
-        # lower case and remove stopwords
-        case = ' '.join([word for word in case.lower().split() if word not in stop_words])
         case_examples = []
         case_answers = []
         if filter_unwanted_cases(case, case_title, case_type):
-            summary = summary_tokenize(case)
+            # lower case and remove stopwords
+            case = ' '.join([word for word in case.lower().split() if word not in stop_words])
+            summary, summary_start_idx, summary_end_idx = summary_tokenize(case)
             if summary:
                 summary = summary.group(1)
 
             matches = CN_tag_extractor.finditer(case) # Extract all <damage ...>$x</damage> tags used for training
             for match in matches:
                 features, answer = extract_CN_features(match, case, tag_extractor, CN_tag_extractor)
-                if summary and match.group(0) in summary.lower() and answer != 'other':
+                if match.start() >= summary_start_idx and match.end() <= summary_end_idx and answer != 'other':
                     features['start_idx_ratio'] = 1
                 
                 case_examples.append(features)
