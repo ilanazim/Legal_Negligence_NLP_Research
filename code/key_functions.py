@@ -816,7 +816,7 @@ def get_percent_reduction_and_contributory_negligence_success(case_dict, case, m
  
     return percent_reduction, contributory_negligence_successful
 
-def train_classifier(path, clf = MultinomialNB()):
+def train_classifier(path, clf = MultinomialNB(), context_length = 5, min_para_score = 0, min_predict_proba = 0.5):
     '''Trains a classifier based on the given training data path
     
     Arguments:
@@ -854,14 +854,7 @@ def train_classifier(path, clf = MultinomialNB()):
         
         case_examples = []
         case_answers = []
-        if filter_unwanted_cases(case, case_title, case_type):
-            CN_match = CN_tag_extractor.finditer(case) # Extract all <percentage ...>$x</percentage> tags used for training 
-            
-            for percentage in CN_match: #iterating over the matches for <percentage>
-                percentage_value = percentage.group(2)
-                #replacing the whole <percentage tag with just the percentage value
-                case = CN_tag_extractor.sub(percentage_value, case)
-                
+        if filter_unwanted_cases(case, case_title, case_type):  
             summary = summary_tokenize(case)
             # lower case and remove stopwords
             case = ' '.join([word for word in case.lower().split() if word not in stop_words])
@@ -869,7 +862,7 @@ def train_classifier(path, clf = MultinomialNB()):
             
             matches = tag_extractor.finditer(case) # Extract all <damage ...>$x</damage> tags used for training
             for match in matches:
-                features, answer = extract_features(match, case, tag_extractor, CN_tag_extractor)
+                features, answer = extract_features(match, case, tag_extractor, CN_tag_extractor, context_length = context_length, purpose='train')
                 # if value is found in case summary, replace start_idx_ratio with 1
                 if summary:
                     if match.start() >= summary_start_idx and match.end() <= summary_end_idx and answer != 'other':
@@ -924,7 +917,7 @@ def train_classifier(path, clf = MultinomialNB()):
     case_damages = defaultdict(dict)
     for i in range(len(prediction_feats_per_case)):
         case_preds = prediction_feats_per_case[i]
-        damages = assign_classification_damages(case_preds)
+        damages = assign_classification_damages(case_preds, min_score = min_para_score, min_predict_proba = min_predict_proba)
         case_damages[case_titles[i]].update(damages)
 
     print('Cross validation evaluation...')
@@ -1395,7 +1388,7 @@ def plaintiff_wins(line):
                 return "OpenCase"
 
 
-def assign_classification_CN(predictions, min_score = 0):
+def assign_classification_CN(predictions, min_score = 0, min_predict_proba = 0.7):
     '''Given a set of predictions for CN for a single case, function will
     pull out the most probably answer and return it
 
@@ -1414,11 +1407,11 @@ def assign_classification_CN(predictions, min_score = 0):
         
         # not currently handling sub-cnd
         if prediction_type == 'cnp':
-            if max(predict_proba) > 0.7: 
+            if max(predict_proba) > min_predict_proba: 
                 # print(value, max(predict_proba))
                 temporary_damages['cnp'].append((value, max(predict_proba)))
         elif prediction_type == 'cnd':
-            if max(predict_proba) > 0.7: 
+            if max(predict_proba) > min_predict_proba: 
                 # print(value, max(predict_proba))
                 temporary_damages['cnp'].append((1-value, max(predict_proba)))
     
@@ -1439,7 +1432,7 @@ def assign_classification_CN(predictions, min_score = 0):
     else:
         return best_value
             
-def train_CN_classifier(path, clf = MultinomialNB()):
+def train_CN_classifier(path, clf = MultinomialNB(), min_para_score = 0, min_predict_proba = 0.7):
     '''Trains a classifier based on the given training data path
     Arguments:
     path (String) - Path to .txt containing training data
@@ -1537,7 +1530,7 @@ def train_CN_classifier(path, clf = MultinomialNB()):
     case_percents = defaultdict(float)
     for i in range(len(prediction_feats_per_case)):
         case_preds = prediction_feats_per_case[i]
-        percent = assign_classification_CN(case_preds)
+        percent = assign_classification_CN(case_preds, min_score = min_para_score, min_predict_proba = min_predict_proba)
         case_percents[case_titles[i]] = percent
 
     print('Cross validation evaluation...')
