@@ -118,11 +118,11 @@ def rule_based_parse_BCJ(path, damage_model = None, damage_vectorizer = None, an
                         
             if case_dict['plaintiff_wins'] == 'Y':
                 if damage_model and damage_vectorizer: #and annotated_damages:
-                    #if case_title in annotated_damages:
-                    #    case_dict['damages'] = annotated_damages[case_title]
-                    #else:
-                    predictions = predict(case, damage_model, damage_vectorizer)
-                    case_dict['damages'] = assign_classification_damages(predictions, min_predict_proba = min_predict_proba, high_precision_mode = high_precision_mode)
+                    if case_title in annotated_damages:
+                        case_dict['damages'] = annotated_damages[case_title]
+                    else:
+                        predictions = predict(case, damage_model, damage_vectorizer)
+                        case_dict['damages'] = assign_classification_damages(predictions, min_predict_proba = min_predict_proba, high_precision_mode = high_precision_mode)
                 else:
                     case_dict['damages'] = rule_based_damage_extraction(case)  
             else:
