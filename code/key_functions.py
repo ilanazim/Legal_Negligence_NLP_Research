@@ -21,7 +21,7 @@ from nltk.stem import WordNetLemmatizer
 from nltk.corpus import wordnet
 from nltk import pos_tag
 
-def rule_based_parse_BCJ(path, damage_model = None, damage_vectorizer = None, annotated_damages = None, cn_model = None, cn_vectorizer = None, annotated_cn = None):
+def rule_based_parse_BCJ(path, damage_model = None, damage_vectorizer = None, annotated_damages = None, cn_model = None, cn_vectorizer = None, annotated_cn = None, min_predict_proba = 0.5, high_precision_mode = False, include_no_damage_cases = False):
     '''Given file path (text file) of negligence cases, finds static 
     information within the case (information that can be pattern matched)
     Expects a B.C.J. case format (British Columbia Judgments)
@@ -44,6 +44,10 @@ def rule_based_parse_BCJ(path, damage_model = None, damage_vectorizer = None, an
     [Optional] cn_model (sklearn model) - Used for contributory negligence percent classification. If not supplied uses rule based
     [Optional] cn_vectorizer (DictVectorizer) Used for contributory negligence percent classification. If not supplied uses rule based
     [Optional] annotated_cn (dict) The results of cross-validation classification for annotated percent values, mapping case title to the predicted damages, only if using damage classifier.
+    [Optional] min_predict_proba (float) - When classifying, sets the min confidence a tag must have to be assigned
+    [Optional] high_precision_mode (bool) - When classifying, if true, will never sum or use "sub-" tags. Only high precision predictions.
+    [Optional] include_no_damage_cases (bool) - If true, will include cases where no damages are awarded. If false, will only return cases where it found damages.
+
     Returns: case_parsed_data (list) of case_dict (Dictionary): List of Dictionaries with rule based parsable fields filled in
     '''
     with open(path, encoding='utf-8') as document:
@@ -113,12 +117,12 @@ def rule_based_parse_BCJ(path, damage_model = None, damage_vectorizer = None, an
             case_dict['plaintiff_wins'] = plaintiff_wins(case)
                         
             if case_dict['plaintiff_wins'] == 'Y':
-                if damage_model and damage_vectorizer and annotated_damages:
+                if damage_model and damage_vectorizer: #and annotated_damages:
                     if case_title in annotated_damages:
                         case_dict['damages'] = annotated_damages[case_title]
                     else:
                         predictions = predict(case, damage_model, damage_vectorizer)
-                        case_dict['damages'] = assign_classification_damages(predictions)
+                        case_dict['damages'] = assign_classification_damages(predictions, min_predict_proba = min_predict_proba, high_precision_mode = high_precision_mode)
                 else:
                     case_dict['damages'] = rule_based_damage_extraction(case)  
             else:
@@ -146,9 +150,12 @@ def rule_based_parse_BCJ(path, damage_model = None, damage_vectorizer = None, an
             case_dict['contributory_negligence_successful'] = contributory_negligence_successful
              
         
-        # don't add empty dictionaries (non BCJ cases) to list
-        if case_dict != dict(): 
-            case_parsed_data.append(case_dict)
+        if include_no_damage_cases:
+            if case_dict != dict(): 
+                case_parsed_data.append(case_dict)
+        else:  
+            if case_dict != dict() and case_dict['damages'] != None: 
+                case_parsed_data.append(case_dict)
     return case_parsed_data
 
 def rule_based_multiple_defendants_parse(doc):
@@ -305,11 +312,7 @@ def rule_based_damage_extraction(doc, min_score = 0.9, max_match_len_split = 10)
         if not value_mapped:
             value_mapped = assign_damage_to_category(extracted_value, special_damage_keywords, match, score, matches, 'Special', damages, repetition_detection, repetition_key = ('special',))
         if not value_mapped:
-<<<<<<< HEAD
-            value_mapped = assign_damage_to_category(extracted_value, non_pecuniary_damage_keywords, match, score, matches, 'Non pecuniary', damages, repetition_detection, repetition_key = ('non','pecuniary'))
-=======
             value_mapped = assign_damage_to_category(extracted_value, non_pecuniary_damage_keywords, match, score, matches, 'Non Pecuniary', damages, repetition_detection, repetition_key = ('non','pecuniary'))
->>>>>>> ac0be1fd630c2fd9498f1b294b52f40ab4878819
         if not value_mapped:
             value_mapped = assign_damage_to_category(extracted_value, aggravated_damage_keywords, match, score, matches, 'Aggravated', damages, repetition_detection, repetition_key = ('aggravated',))
         if not value_mapped:
@@ -323,31 +326,19 @@ def rule_based_damage_extraction(doc, min_score = 0.9, max_match_len_split = 10)
                     if is_best_score(score, matches, keywords):
                         if extracted_value not in repetition_detection[('total',)]:
                             damages['Pecuniary Total'] = damages['Special'] + damages['General'] + damages['Punitive'] + damages['Aggravated'] + damages['Future Care']
-<<<<<<< HEAD
-                            damages['Total'] = damages['Pecuniary Total'] + damages['Non pecuniary']
-=======
                             damages['Total'] = damages['Pecuniary Total'] + damages['Non Pecuniary']
->>>>>>> ac0be1fd630c2fd9498f1b294b52f40ab4878819
                             if damages['Total'] == 0:
                                 total = extracted_value
                                 repetition_detection[('total',)].add(extracted_value)
                         
     damages['Pecuniary Total'] = damages['Special'] + damages['General'] + damages['Punitive'] + damages['Aggravated'] + damages['Future Care']
-<<<<<<< HEAD
-    damages['Total'] = damages['Pecuniary Total'] + damages['Non pecuniary']
-=======
     damages['Total'] = damages['Pecuniary Total'] + damages['Non Pecuniary']
->>>>>>> ac0be1fd630c2fd9498f1b294b52f40ab4878819
     
     if damages['Total'] == 0 and total is not None: # Only use the "total" if we couldnt find anything else!
         damages['Total'] = total
         damages['General'] = total
         
-<<<<<<< HEAD
-    columns = ['Total', 'Pecuniary Total', 'Non pecuniary', 'Special', 'General', 'Punitive', 'Aggravated', 'Future Care']
-=======
     columns = ['Total', 'Pecuniary Total', 'Non Pecuniary', 'Special', 'General', 'Punitive', 'Aggravated', 'Future Care']
->>>>>>> ac0be1fd630c2fd9498f1b294b52f40ab4878819
     for c in columns:
         damages[c] = None if damages[c] == 0 else damages[c]
     
@@ -825,7 +816,7 @@ def get_percent_reduction_and_contributory_negligence_success(case_dict, case, m
  
     return percent_reduction, contributory_negligence_successful
 
-def train_classifier(path, clf = MultinomialNB()):
+def train_classifier(path, clf = MultinomialNB(), context_length = 5, min_para_score = 0, min_predict_proba = 0.5):
     '''Trains a classifier based on the given training data path
     
     Arguments:
@@ -853,11 +844,6 @@ def train_classifier(path, clf = MultinomialNB()):
     for i in range(len(document_data)):
         print('Reading training data and extracting features...', i / num_cases * 100, '%', end='\r')
         case = document_data[i]
-<<<<<<< HEAD
-         
-            
-=======
->>>>>>> ac0be1fd630c2fd9498f1b294b52f40ab4878819
         case = case.strip() # Make sure to strip!
         if len(case) == 0: # Skip empty lines
             continue
@@ -868,26 +854,15 @@ def train_classifier(path, clf = MultinomialNB()):
         
         case_examples = []
         case_answers = []
-        if filter_unwanted_cases(case, case_title, case_type):
-<<<<<<< HEAD
-            CN_match = CN_tag_extractor.finditer(case) # Extract all <percentage ...>$x</percentage> tags used for training 
-            
-            for percentage in CN_match: #iterating over the matches for <percentage>
-                percentage_value = percentage.group(2)
-                #replacing the whole <percentage tag with just the percentage value
-                case = CN_tag_extractor.sub(percentage_value, case)
-                
+        if filter_unwanted_cases(case, case_title, case_type):  
             summary = summary_tokenize(case)
             # lower case and remove stopwords
-=======
-            # lower case and remove stopwords. 
->>>>>>> ac0be1fd630c2fd9498f1b294b52f40ab4878819
             case = ' '.join([word for word in case.lower().split() if word not in stop_words])
             summary, summary_start_idx, summary_end_idx = summary_tokenize(case)
             
             matches = tag_extractor.finditer(case) # Extract all <damage ...>$x</damage> tags used for training
             for match in matches:
-                features, answer = extract_features(match, case, tag_extractor, CN_tag_extractor)
+                features, answer = extract_features(match, case, tag_extractor, CN_tag_extractor, context_length = context_length, purpose='train')
                 # if value is found in case summary, replace start_idx_ratio with 1
                 if summary:
                     if match.start() >= summary_start_idx and match.end() <= summary_end_idx and answer != 'other':
@@ -942,7 +917,7 @@ def train_classifier(path, clf = MultinomialNB()):
     case_damages = defaultdict(dict)
     for i in range(len(prediction_feats_per_case)):
         case_preds = prediction_feats_per_case[i]
-        damages = assign_classification_damages(case_preds)
+        damages = assign_classification_damages(case_preds, min_score = min_para_score, min_predict_proba = min_predict_proba)
         case_damages[case_titles[i]].update(damages)
 
     print('Cross validation evaluation...')
@@ -985,12 +960,12 @@ def extract_features(match, case, dmg_pattern, cn_pattern = None, context_length
     start_idx = match.start()
     end_idx = match.end()
     
-    # Get 3 * Context Length on each side 
+    # Get 10 + Context Length on each side 
     # Used to get rid of damage tags within context around our match
     # We want to avoid getting half a damage tag else it wont be removed
     # So we get more than we need.
-    start_tokenized = ' '.join(case[:start_idx].split()[-context_length*3:])
-    end_tokenized = ' '.join(case[end_idx:].split()[:context_length*3])
+    start_tokenized = ' '.join(case[:start_idx].split()[-context_length-10:])
+    end_tokenized = ' '.join(case[end_idx:].split()[:context_length+10])
 
     if purpose == 'train':
         if cn_pattern is None:
@@ -1012,8 +987,10 @@ def extract_features(match, case, dmg_pattern, cn_pattern = None, context_length
             end_tokenized = end_tokenized.replace(e_cn.group(0), e_cn.group(2))
 
     # Reconstruct sentence
-    tokens = start_tokenized + " " + damage_value + " " + end_tokenized 
-    value_start_idx = len(start_tokenized.split()) # Location of value in relation to sentence (token level)
+    start_tokenized = start_tokenized.split()[-context_length:]
+    end_tokenized = end_tokenized.split()[:context_length]
+    tokens = ' '.join(start_tokenized) + " " + damage_value + " " + ' '.join(end_tokenized)
+    value_start_idx = len(start_tokenized) # Location of value in relation to sentence (token level)
     if len(damage_value.split()) > 1: # Deals with problems like '2 million' (where value is multiple tokens)
         value_end_idx = value_start_idx + len(damage_value.split()) - 1
     else:
@@ -1111,13 +1088,14 @@ def predict(case, clf, vectorizer, category='damages'):
     else:
         return []
     
-def assign_classification_damages(predictions, min_score = 0):
+def assign_classification_damages(predictions, min_score = 0, min_predict_proba = 0.5, high_precision_mode = False):
     '''Helper function for rule based BCJ
     Handles assigning predictions into final damage amounts
     
     Arguments:
     predictions (tuple returned from predict function)
     min_score (float) - If a prediction appears before this point in the case it is discarded
+    min_predict_proba (float) - The minimum confidence a tag has before it can be assigned
     
     Returns:
     damages (defaultdict(float)) - Damages with values filled in based on predictions
@@ -1129,49 +1107,96 @@ def assign_classification_damages(predictions, min_score = 0):
         if ratio < min_score:
             continue
         
-        if max(predict_proba) > 0.5:
+        if max(predict_proba) > min_predict_proba:
             temporary_damages[prediction_type].append(value)
 
 
-    # Currently not dealing with "reduction" or "total after" (or total - manually adding)
-    damages['Future Care'] = temporary_damages['future care'][-1] if len(temporary_damages['future care']) != 0 \
-                             else sum(temporary_damages['sub-future care'])
+    # High Precision Mode: Only assigns damage if the final damage tag is found
+    # Does not add up and "sub-total" values
+    # Only adds things like "In-Trust" and "Special" so long as both tags are found
+    
+    if high_precision_mode:
+        damages['Pecuniary Total'] = None
+        damages['Future Care'] = temporary_damages['future care'][-1] if len(temporary_damages['future care']) != 0 \
+                                 else None
+        damages['Future Wage Loss'] = temporary_damages['future wage loss'][-1] if len(temporary_damages['future wage loss']) != 0 \
+                                      else None 
+        damages['General'] = temporary_damages['general'][-1] if len(temporary_damages['general']) != 0 \
+                             else None
+        damages['In Trust'] = temporary_damages['in trust'][-1] if len(temporary_damages['in trust']) != 0 \
+                             else None
+        damages['Non Pecuniary'] = temporary_damages['non pecuniary'][-1] if len(temporary_damages['non pecuniary']) != 0 \
+                             else None
+        damages['Past Wage Loss'] = temporary_damages['past wage loss'][-1] if len(temporary_damages['past wage loss']) != 0 \
+                             else None
+        damages['Punitive'] = temporary_damages['punitive'][-1] if len(temporary_damages['punitive']) != 0 \
+                             else None
+        damages['Special'] = temporary_damages['special'][-1] if len(temporary_damages['special']) != 0 \
+                             else None
+        damages['Aggravated'] = temporary_damages['aggravated'][-1] if len(temporary_damages['aggravated']) != 0 \
+                             else None
+        damages['Total'] = temporary_damages['total'][-1] if len(temporary_damages['total']) != 0 \
+                             else None
         
-    damages['Future Wage Loss'] = temporary_damages['future wage loss'][-1] if len(temporary_damages['future wage loss']) != 0 \
-                                  else sum(temporary_damages['sub-future wage loss'])
-        
-    damages['General'] = temporary_damages['general'][-1] if len(temporary_damages['general']) != 0 \
-                         else sum(temporary_damages['sub-general'])
+        # Only sum damages that actually had the tag itself predicted
+        if damages['Future Wage Loss']:
+            if damages['General']:
+                damages['General'] += damages['Future Wage Loss']
+            else:
+                damages['General'] = damages['Future Wage Loss']
+        if damages['Past Wage Loss']:
+            if damages['Special']:
+                damages['Special'] += damages['Past Wage Loss']
+            else:
+                damages['Special'] = damages['Past Wage Loss']
+        if damages['In Trust']:
+            if damages['Special']:
+                damages['Special'] += damages['In Trust']
+            else:
+                damages['Special'] = damages['In Trust']
+        if damages['Special']:
+            damages['Pecuniary Total'] = damages['Special']
+        if damages['General']:
+            if damages['Pecuniary Total']:
+                damages['Pecuniary Total'] += damages['General']
+            else:
+                damages['Pecuniary Total'] = damages['General']
+        if damages['Future Care']:
+            if damages['Pecuniary Total']:
+                damages['Pecuniary Total'] += damages['Future Care']
+            else:
+                damages['Pecuniary Total'] = damages['Future Care']
     
-    damages['In Trust'] = temporary_damages['in trust'][-1] if len(temporary_damages['in trust']) != 0 \
-                         else sum(temporary_damages['sub-in trust'])
+    # "Low" precision mode
+    # Adds up the sub- categories
+    else:
+        damages['Future Care'] = temporary_damages['future care'][-1] if len(temporary_damages['future care']) != 0 \
+                                 else sum(temporary_damages['sub-future care'])
+        damages['Future Wage Loss'] = temporary_damages['future wage loss'][-1] if len(temporary_damages['future wage loss']) != 0 \
+                                      else sum(temporary_damages['sub-future wage loss'])
+        damages['General'] = temporary_damages['general'][-1] if len(temporary_damages['general']) != 0 \
+                             else sum(temporary_damages['sub-general'])
+        damages['In Trust'] = temporary_damages['in trust'][-1] if len(temporary_damages['in trust']) != 0 \
+                             else sum(temporary_damages['sub-in trust'])
+        damages['Non Pecuniary'] = temporary_damages['non pecuniary'][-1] if len(temporary_damages['non pecuniary']) != 0 \
+                             else sum(temporary_damages['sub-non pecuniary'])
+        damages['Past Wage Loss'] = temporary_damages['past wage loss'][-1] if len(temporary_damages['past wage loss']) != 0 \
+                             else sum(temporary_damages['sub-past wage loss'])
+        damages['Punitive'] = temporary_damages['punitive'][-1] if len(temporary_damages['punitive']) != 0 \
+                             else sum(temporary_damages['sub-punitive'])
+        damages['Special'] = temporary_damages['special'][-1] if len(temporary_damages['special']) != 0 \
+                             else sum(temporary_damages['sub-special'])
+        damages['Aggravated'] = temporary_damages['aggravated'][-1] if len(temporary_damages['aggravated']) != 0 \
+                             else sum(temporary_damages['sub-saggravated'])
+        damages['Total'] = temporary_damages['total'][-1] if len(temporary_damages['total']) != 0 \
+                             else sum(temporary_damages['sub-total'])
+        damages['General'] += damages['Future Wage Loss']
+        damages['Special'] += damages['Past Wage Loss'] + damages['In Trust']
+        damages['Pecuniary Total'] = damages['Special'] + damages['General'] + damages['Future Care']
     
-    damages['Non Pecuniary'] = temporary_damages['non pecuniary'][-1] if len(temporary_damages['non pecuniary']) != 0 \
-                         else sum(temporary_damages['sub-non pecuniary'])
-    
-    damages['Past Wage Loss'] = temporary_damages['past wage loss'][-1] if len(temporary_damages['past wage loss']) != 0 \
-                         else sum(temporary_damages['sub-past wage loss'])
-    
-    damages['Punitive'] = temporary_damages['punitive'][-1] if len(temporary_damages['punitive']) != 0 \
-                         else sum(temporary_damages['sub-punitive'])
-
-    damages['Special'] = temporary_damages['special'][-1] if len(temporary_damages['special']) != 0 \
-                         else sum(temporary_damages['sub-special'])
-    
-    damages['Aggravated'] = temporary_damages['aggravated'][-1] if len(temporary_damages['aggravated']) != 0 \
-                         else sum(temporary_damages['sub-saggravated'])
-    
-    damages['Total'] = temporary_damages['total'][-1] if len(temporary_damages['total']) != 0 \
-                         else None
-    
-    damages['General'] += damages['Future Wage Loss']
-    damages['Special'] += damages['Past Wage Loss'] + damages['In Trust']
-
-    damages['Pecuniary Total'] = damages['Special'] + damages['General'] + damages['Future Care']
-    
-    # Only sum up damages if we weren't able to properly extract it from the text.
-#     if damages['Total'] is None:
-#         damages['Total'] = damages['Pecuniary Total'] + damages['Non Pecuniary'] + damages['Aggravated']
+        # Only sum up damages if we weren't able to properly extract it from the text.
+        if damages['Total'] is None:
+            damages['Total'] = damages['Pecuniary Total'] + damages['Non Pecuniary'] + damages['Aggravated']
     
     columns = ['Total', 'Pecuniary Total', 'Non Pecuniary', 'Special', 'General', 'Punitive', 'Aggravated', 'Future Care']
     for c in columns:
@@ -1189,11 +1214,7 @@ def rule_based_convert_cases_to_DF(cases):
         lists['Year'].append(case['year'])
         lists['Total Damage'].append(case['damages']['Total'] if case['damages'] != None else None)
         lists['Total Pecuniary'].append(case['damages']['Pecuniary Total'] if case['damages'] != None else None)
-<<<<<<< HEAD
-        lists['Non Pecuniary'].append(case['damages']['Non pecuniary'] if case['damages'] != None else None)
-=======
         lists['Non Pecuniary'].append(case['damages']['Non Pecuniary'] if case['damages'] != None else None)
->>>>>>> ac0be1fd630c2fd9498f1b294b52f40ab4878819
         lists['General'].append(case['damages']['General'] if case['damages'] != None else None)
         lists['Special'].append(case['damages']['Special'] if case['damages'] != None else None)
         lists['Punitive'].append(case['damages']['Punitive'] if case['damages'] != None else None)
@@ -1215,7 +1236,7 @@ def rule_based_convert_cases_to_DF(cases):
     
     return df
 
-def evaluate(dev_data, gold_data, subset=None):
+def evaluate(dev_data, gold_data, subset=None, focus_column=None):
     '''Evaluates the results against a gold standard set
     
     Arguments:
@@ -1234,6 +1255,11 @@ def evaluate(dev_data, gold_data, subset=None):
     # Filter data to only use overlapping items
     gold_data = gold_data[gold_data['Case Name'].isin(dev_case_names)]
     dev_data = dev_data[dev_data['Case Name'].isin(gold_case_names)]
+
+    # If we are focussing on a specific column. We drop results when it is NaN
+    # Useful because our model has high precision, low recall. Sometimes want
+    # to evaluate how model did when it actually made a prediction (its precision)
+    dev_data.dropna(subset = [focus_column], inplace=True)
     
     # Mapping from our variable names to Lachlan's column names
     column_mapping = {'Decision Length': 'Decision Length: paragraphs)',
@@ -1293,7 +1319,7 @@ def evaluate(dev_data, gold_data, subset=None):
                             if math.isclose(dev_value, gold_value, abs_tol=1): # Tolerance within 1
                                 non_empty_correct += 1
                             else:
-                                errors.append(abs(dev_value - gold_value))
+                                errors.append(dev_value - gold_value)
                         elif dev_value == gold_value:
                             non_empty_correct += 1
                         
@@ -1362,41 +1388,51 @@ def plaintiff_wins(line):
                 return "OpenCase"
 
 
-def assign_classification_CN(predictions, min_score = 0):
-        percent = 0
-        temporary_damages = defaultdict(list)
-        for value, prediction_type, ratio, predict_proba in predictions:
-            if ratio < min_score:
-                continue
-            
-            # not currently handling sub-cnd
-            if prediction_type == 'cnp':
-                if max(predict_proba) > 0.7: 
-                    # print(value, max(predict_proba))
-                    temporary_damages['cnp'].append((value, max(predict_proba)))
-            elif prediction_type == 'cnd':
-                if max(predict_proba) > 0.7: 
-                    print(value, max(predict_proba))
-                    temporary_damages['cnp'].append((1-value, max(predict_proba)))
+def assign_classification_CN(predictions, min_score = 0, min_predict_proba = 0.7):
+    '''Given a set of predictions for CN for a single case, function will
+    pull out the most probably answer and return it
+
+    Arguments:
+    predictions (list) - List of predictions made for the case
+    min_score (float) - Minimum location ratio of the match. 0 being beginning of case, 1 being end of case
+
+    Returns:
+    best_result (float) - Returns the most probably CN percent reduction. Or None if it can't find one.
+    '''
+    percent = 0
+    temporary_damages = defaultdict(list)
+    for value, prediction_type, ratio, predict_proba in predictions:
+        if ratio < min_score:
+            continue
         
-        # choose most probable value
-        best_value = 0
-        best_prob = 0
-        if len(temporary_damages['cnp']) > 0:
-            for pair in temporary_damages['cnp']:
-                prob = pair[-1]
-                value = pair[0]
-                if prob > best_prob:
-                    best_prob = prob
-                    best_value = value
-    #     percent = temporary_damages['cnp'][-1] if len(temporary_damages['cnp']) != 0 else None
-    #     return percent
-        if best_value == 0:
-            return 
-        else:
-            return best_value
+        # not currently handling sub-cnd
+        if prediction_type == 'cnp':
+            if max(predict_proba) > min_predict_proba: 
+                # print(value, max(predict_proba))
+                temporary_damages['cnp'].append((value, max(predict_proba)))
+        elif prediction_type == 'cnd':
+            if max(predict_proba) > min_predict_proba: 
+                # print(value, max(predict_proba))
+                temporary_damages['cnp'].append((1-value, max(predict_proba)))
+    
+    # choose most probable value
+    best_value = 0
+    best_prob = 0
+    if len(temporary_damages['cnp']) > 0:
+        for pair in temporary_damages['cnp']:
+            prob = pair[-1]
+            value = pair[0]
+            if prob > best_prob:
+                best_prob = prob
+                best_value = value
+#     percent = temporary_damages['cnp'][-1] if len(temporary_damages['cnp']) != 0 else None
+#     return percent
+    if best_value == 0:
+        return 
+    else:
+        return best_value
             
-def train_CN_classifier(path, clf = MultinomialNB()):
+def train_CN_classifier(path, clf = MultinomialNB(), min_para_score = 0, min_predict_proba = 0.7):
     '''Trains a classifier based on the given training data path
     Arguments:
     path (String) - Path to .txt containing training data
@@ -1405,14 +1441,9 @@ def train_CN_classifier(path, clf = MultinomialNB()):
     model (sklearn model) - Trained model
     vectorizer (sklearn DictVectorizer) - fit-transformed vectorizer
     '''
-<<<<<<< HEAD
-    tag_extractor = re.compile('''<percentage type ?= ?['"](.*?)['"]> ?(\$?.*?) ?<\/percentage>''')
-    damage_tag_extractor = re.compile('''<damage type ?= ?['"](.*?)['"]> ?(\$?.*?) ?<\/damage>''')
-    
-=======
+
     tag_extractor = re.compile('''<damage type ?= ?['"](.*?)['"]> ?(\$?.*?) ?<\/damage>''')
     CN_tag_extractor = re.compile('''<percentage type ?= ?['"](.*?)['"]> ?(\$?.*?) ?<\/percentage>''')
->>>>>>> ac0be1fd630c2fd9498f1b294b52f40ab4878819
     stop_words = set(stopwords.words('english'))
 
     with open(path, encoding='utf-8') as document:
@@ -1439,28 +1470,16 @@ def train_CN_classifier(path, clf = MultinomialNB()):
         case_examples = []
         case_answers = []
         if filter_unwanted_cases(case, case_title, case_type):
-<<<<<<< HEAD
-            
-            damage_match = damage_tag_extractor.finditer(case) # Extract all <damage ...>$x</damage> tags used for training 
-            for M in damage_match: #iterating over the matches for <percentage>
-                damage_value = M.group(2)
-                #replacing the whole <percentage tag with just the percentage value
-                case = damage_tag_extractor.sub(damage_value, case)
-
-            matches = tag_extractor.finditer(case) # Extract all <damage ...>$x</damage> tags used for training
-=======
             # lower case and remove stopwords
             case = ' '.join([word for word in case.lower().split() if word not in stop_words])
             summary, summary_start_idx, summary_end_idx = summary_tokenize(case)
-            if summary:
-                summary = summary.group(1)
 
             matches = CN_tag_extractor.finditer(case) # Extract all <damage ...>$x</damage> tags used for training
->>>>>>> ac0be1fd630c2fd9498f1b294b52f40ab4878819
             for match in matches:
                 features, answer = extract_CN_features(match, case, tag_extractor, CN_tag_extractor)
-                if match.start() >= summary_start_idx and match.end() <= summary_end_idx and answer != 'other':
-                    features['start_idx_ratio'] = 1
+                if summary:
+                    if match.start() >= summary_start_idx and match.end() <= summary_end_idx and answer != 'other':
+                        features['start_idx_ratio'] = 1
                 
                 case_examples.append(features)
                 case_answers.append(answer)
@@ -1511,7 +1530,7 @@ def train_CN_classifier(path, clf = MultinomialNB()):
     case_percents = defaultdict(float)
     for i in range(len(prediction_feats_per_case)):
         case_preds = prediction_feats_per_case[i]
-        percent = assign_classification_CN(case_preds)
+        percent = assign_classification_CN(case_preds, min_score = min_para_score, min_predict_proba = min_predict_proba)
         case_percents[case_titles[i]] = percent
 
     print('Cross validation evaluation...')
@@ -1561,12 +1580,12 @@ def extract_CN_features(match, case, dmg_pattern, cn_pattern = None, context_len
         percent_value = match.group(0).strip()
     start_idx = match.start()
     end_idx = match.end()
-    # Get 3 * Context Length on each side 
+    # Get 10 + Context Length on each side 
     # Used to get rid of damage tags within context around our match
     # We want to avoid getting half a damage/percentage tag else it wont be removed
     # So we get more than we need.
-    start_tokenized = ' '.join(case[:start_idx].split()[-context_length*3:])
-    end_tokenized = ' '.join(case[end_idx:].split()[:context_length*3])
+    start_tokenized = ' '.join(case[:start_idx].split()[-context_length-10:])
+    end_tokenized = ' '.join(case[end_idx:].split()[:context_length+10])
 
     #lexicons
     reduce_words = ['reduce', 'liable', 'liability', 'fault', 'responsible', 'against', 'less', 'failure']
@@ -1591,8 +1610,10 @@ def extract_CN_features(match, case, dmg_pattern, cn_pattern = None, context_len
         for e_cn in end_matches_cn:
             end_tokenized = end_tokenized.replace(e_cn.group(0), e_cn.group(2))
     # Reconstruct sentence
-    tokens = start_tokenized + " " + percent_value + " " + end_tokenized 
-    value_start_idx = len(start_tokenized.split()) # Location of value in relation to sentence (token level)
+    start_tokenized = start_tokenized.split()[-context_length:]
+    end_tokenized = end_tokenized.split()[:context_length]
+    tokens = ' '.join(start_tokenized) + " " + damage_value + " " + ' '.join(end_tokenized)
+    value_start_idx = len(start_tokenized) # Location of value in relation to sentence (token level)
     if len(percent_value.split()) > 1: # Deals with problems like '2 million' (where value is multiple tokens)
         value_end_idx = value_start_idx + len(percent_value.split()) - 1
     else:
