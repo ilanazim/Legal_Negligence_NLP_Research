@@ -826,6 +826,7 @@ def train_classifier(path, clf = MultinomialNB(), context_length = 5, min_para_s
     Returns:
     model (sklearn model) - Trained model
     vectorizer (sklearn DictVectorizer) - fit-transformed vectorizer
+    case_damages (dict) - Dictionarry mapping annotated damages to their cross-validated predictions
     '''
     tag_extractor = re.compile('''<damage type ?= ?['"](.*?)['"]> ?(\$?.*?) ?<\/damage>''')
     CN_tag_extractor = re.compile('''<percentage type ?= ?['"](.*?)['"]> ?(\$?.*?) ?<\/percentage>''')
@@ -1440,6 +1441,7 @@ def train_CN_classifier(path, clf = MultinomialNB(), min_para_score = 0, min_pre
     Returns:
     model (sklearn model) - Trained model
     vectorizer (sklearn DictVectorizer) - fit-transformed vectorizer
+    case_percents (dict) - Dictionary mapping annotated percentages to their cross-validated predictions
     '''
 
     tag_extractor = re.compile('''<damage type ?= ?['"](.*?)['"]> ?(\$?.*?) ?<\/damage>''')
