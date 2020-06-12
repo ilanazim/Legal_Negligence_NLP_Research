@@ -816,17 +816,20 @@ def get_percent_reduction_and_contributory_negligence_success(case_dict, case, m
  
     return percent_reduction, contributory_negligence_successful
 
-def train_classifier(path, clf = MultinomialNB(), context_length = 5, min_para_score = 0, min_predict_proba = 0.5, high_precision_mode = False):
+def train_classifier(path, clf = MultinomialNB(), context_length = 5, min_para_score = 0, min_predict_proba = 0.5, high_precision_mode = False, fit_model = False):
     '''Trains a classifier based on the given training data path
     
     Arguments:
     path (String) - Path to .txt containing training data
     clf - untrained sklearn classifier, ie MultinomialNB()
     
+    fit_model - if True it fits the model if false just returns the X, y, vectorizer
+    
     Returns:
     model (sklearn model) - Trained model
     vectorizer (sklearn DictVectorizer) - fit-transformed vectorizer
     case_damages (dict) - Dictionarry mapping annotated damages to their cross-validated predictions
+
     '''
     tag_extractor = re.compile('''<damage type ?= ?['"](.*?)['"]> ?(\$?.*?) ?<\/damage>''')
     CN_tag_extractor = re.compile('''<percentage type ?= ?['"](.*?)['"]> ?(\$?.*?) ?<\/percentage>''')
@@ -889,11 +892,14 @@ def train_classifier(path, clf = MultinomialNB(), context_length = 5, min_para_s
     dist = Counter(y)
     print(dist)
     
+    if not fit_model:
+        return X, y, vectorizer
+    
     # get cross-validated predictions for annotated training data
     values = [feat['float'] for feat in feats]
     value_locations = [feat['start_idx_ratio'] for feat in feats]
-    y_pred = cross_val_predict(clf, X, y, cv = 3) 
-    y_prob = cross_val_predict(clf, X, y, cv = 3, method='predict_proba')
+    y_pred = cross_val_predict(clf, X, y, cv = 5) 
+    y_prob = cross_val_predict(clf, X, y, cv = 5, method='predict_proba')
     
     values_per_case = [len(vals) for vals in examples_per_case] #number of tagged values in each case
     
