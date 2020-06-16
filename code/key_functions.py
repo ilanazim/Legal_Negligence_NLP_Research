@@ -23,6 +23,7 @@ from nltk.stem import WordNetLemmatizer
 from nltk.corpus import wordnet
 from nltk import pos_tag
 
+
 def rule_based_parse_BCJ(path, damage_model = None, damage_vectorizer = None, annotated_damages = None, cn_model = None, cn_vectorizer = None, annotated_cn = None, min_predict_proba = 0.5, high_precision_mode = False, include_no_damage_cases = True):
     '''Given file path (text file) of negligence cases, finds static 
     information within the case (information that can be pattern matched)
@@ -704,7 +705,7 @@ def contributory_negligence_successful_fun(context, keywords):
             return contributory_negligence_successful
     return
 
-def get_percent_reduction_and_contributory_negligence_success(case_dict, case, min_score = 0.9):
+def get_percent_reduction_and_contributory_negligence_success(case_dict, case, min_score = 0.6):
     paragraphs = paragraph_tokenize(case)
     case_title = case_dict['case_title']
     assert paragraphs[0] == case_title
@@ -774,8 +775,8 @@ def get_percent_reduction_and_contributory_negligence_success(case_dict, case, m
                         best_percent = 50.0
                         contributory_negligence_successful = True
         
-        if best_score == 0 or not best_percent or not contributory_negligence_successful:
-            # no percents found in paragraphs - time to check summary - same process
+        if not contributory_negligence_successful:
+            # no CN percents found in paragraphs - time to check summary - same process
             summary, summary_start_idx, summary_end_idx = summary_tokenize(case)
             if summary:
                 summary = summary.lower()
@@ -818,16 +819,20 @@ def get_percent_reduction_and_contributory_negligence_success(case_dict, case, m
  
     return percent_reduction, contributory_negligence_successful
 
-def train_classifier(path, clf = MultinomialNB(), context_length = 5, min_para_score = 0, min_predict_proba = 0.5):
+def train_classifier(path, clf = MultinomialNB(), context_length = 5, min_para_score = 0, min_predict_proba = 0.5, high_precision_mode = False, fit_model = False):
     '''Trains a classifier based on the given training data path
     
     Arguments:
     path (String) - Path to .txt containing training data
     clf - untrained sklearn classifier, ie MultinomialNB()
     
+    fit_model - if True it fits the model if false just returns the X, y, vectorizer
+    
     Returns:
     model (sklearn model) - Trained model
     vectorizer (sklearn DictVectorizer) - fit-transformed vectorizer
+    case_damages (dict) - Dictionarry mapping annotated damages to their cross-validated predictions
+
     '''
     tag_extractor = re.compile('''<damage type ?= ?['"](.*?)['"]> ?(\$?.*?) ?<\/damage>''')
     CN_tag_extractor = re.compile('''<percentage type ?= ?['"](.*?)['"]> ?(\$?.*?) ?<\/percentage>''')
@@ -900,6 +905,14 @@ def train_classifier(path, clf = MultinomialNB(), context_length = 5, min_para_s
     dist = Counter(y)
     print(dist)
 
+    
+    
+    if not fit_model:
+        return X, y, vectorizer
+    
+    # get cross-validated predictions for annotated training data
+    values = [feat['float'] for feat in feats]
+    value_locations = [feat['start_idx_ratio'] for feat in feats]
     y_pred = cross_val_predict(clf, X, y, cv = 10) 
     y_prob = cross_val_predict(clf, X, y, cv = 10, method='predict_proba')
     
@@ -926,7 +939,7 @@ def train_classifier(path, clf = MultinomialNB(), context_length = 5, min_para_s
     case_damages = defaultdict(dict)
     for i in range(len(prediction_feats_per_case)):
         case_preds = prediction_feats_per_case[i]
-        damages = assign_classification_damages(case_preds, min_score = min_para_score, min_predict_proba = min_predict_proba)
+        damages = assign_classification_damages(case_preds, min_score = min_para_score, min_predict_proba = min_predict_proba, high_precision_mode = high_precision_mode)
         case_damages[case_titles[i]].update(damages)
 
     print('Cross validation evaluation...')
@@ -939,7 +952,7 @@ def train_classifier(path, clf = MultinomialNB(), context_length = 5, min_para_s
     clf.fit(X, y)
     return clf, vectorizer, case_damages
 
-def extract_features(match, case, dmg_pattern, cn_pattern = None, context_length = 5, purpose = 'train'):
+def extract_features(match, case, dmg_pattern, cn_pattern = None, context_length = 4, purpose = 'train'):
     '''Given a match will return the features associated with the specific example
     Extracts the examples by finding the damage annotation tags
     in the form <damage type = "TYPE">$5000</damage>
@@ -1529,8 +1542,8 @@ def assign_classification_CN(predictions, min_score = 0, min_predict_proba = 0.7
             if prob > best_prob:
                 best_prob = prob
                 best_value = value
-#     percent = temporary_damages['cnp'][-1] if len(temporary_damages['cnp']) != 0 else None
-#     return percent
+
+#     return percent or None
     if best_value == 0:
         return 
     else:
@@ -1544,6 +1557,7 @@ def train_CN_classifier(path, clf = MultinomialNB(), min_para_score = 0, min_pre
     Returns:
     model (sklearn model) - Trained model
     vectorizer (sklearn DictVectorizer) - fit-transformed vectorizer
+    case_percents (dict) - Dictionary mapping annotated percentages to their cross-validated predictions
     '''
 
     tag_extractor = re.compile('''<damage type ?= ?['"](.*?)['"]> ?(\$?.*?) ?<\/damage>''')
@@ -1574,13 +1588,24 @@ def train_CN_classifier(path, clf = MultinomialNB(), min_para_score = 0, min_pre
         case_examples = []
         case_answers = []
         if filter_unwanted_cases(case, case_title, case_type):
+
+            # plaintiff/defendant entities
+            plaintiff_defendant_pattern = r'(^[a-z].*)+ v\. ([a-z|-]+)+.*\n?(?:British Columbia Judgments)' # group 1 is plaintiff group 2 is defendant
+            entity_match = re.search(plaintiff_defendant_pattern, "\n".join(case.split('\n')[:3]), re.IGNORECASE)
+            if entity_match:
+                plaitiff_defendant = entity_match.groups() # tuple (plaintiff, defendant)
+            else:
+                plaitiff_defendant = ('Plaintiff', 'Defendant')
+            plaintiff_split = [word.lower() for word in plaitiff_defendant[0].split()]
+            defendant_split = [word.lower() for word in plaitiff_defendant[1].split()]
+
             # lower case and remove stopwords
             case = ' '.join([word for word in case.lower().split() if word not in stop_words])
             summary, summary_start_idx, summary_end_idx = summary_tokenize(case)
 
             matches = CN_tag_extractor.finditer(case) # Extract all <damage ...>$x</damage> tags used for training
             for match in matches:
-                features, answer = extract_CN_features(match, case, tag_extractor, CN_tag_extractor)
+                features, answer = extract_CN_features(match, case, tag_extractor, CN_tag_extractor, plaintiff_split, defendant_split)
                 if summary:
                     if match.start() >= summary_start_idx and match.end() <= summary_end_idx and answer != 'other':
                         features['start_idx_ratio'] = 1
@@ -1659,7 +1684,7 @@ def get_wordnet_pos(treebank_tag):
 
 
 wordnet_lemmatizer = WordNetLemmatizer()
-def extract_CN_features(match, case, dmg_pattern, cn_pattern = None, context_length = 5, purpose = 'train'):
+def extract_CN_features(match, case, dmg_pattern, cn_pattern = None, plaintiff_split = ['plaintiff'], defendant_split = ['defendant'], context_length = 2, purpose = 'train'):
     '''Given a match will return the features associated with the specific example
     Extracts the examples by finding the percent annotation tags
     in the form <percentage type = "TYPE">50 per cent</percentage>
@@ -1737,8 +1762,12 @@ def extract_CN_features(match, case, dmg_pattern, cn_pattern = None, context_len
     end_boundary = value_end_idx + context_length + 1 if value_end_idx + context_length + 1 < len(tokens) else len(tokens)
 
 
-    # remove alpha-numerics for BOW
-    tokens = re.sub(r'[\W0-9]', ' ', " ".join(tokens)).split()
+    # remove alpha-numerics for BOW and substitute plaintiff/defendant names
+    tokens = re.sub(r'[\W0-9]', ' ', " ".join(tokens))
+    tokens = re.sub('%s|%s'%(re.escape(plaintiff_split[0]), re.escape(plaintiff_split[-1])), ' plaintiff ', tokens)
+    tokens = re.sub('%s|%s'%(re.escape(defendant_split[0]), re.escape(defendant_split[-1])), ' defendant ', tokens).split()
+
+
     before = tokens[start_boundary : value_start_idx]
     after = tokens[value_end_idx + 1 : end_boundary]
 
@@ -1749,22 +1778,15 @@ def extract_CN_features(match, case, dmg_pattern, cn_pattern = None, context_len
     features_bow_a = {k+'@After': v for k, v in features_bow_a.items()}
     features.update(Counter(tokens))
 
-    features['contributory_negligence'] = True if 'contributory negligence' in case.lower() else False
+    # features['contributory_negligence'] = True if 'contributory negligence' in case.lower() else False
     
     # plaintiff/defendant entities
-    plaintiff_defendant_pattern = r'(^[a-z].*)+ v\. ([A-Za-z|-]+)+.*' # group 1 is plaintiff group 2 is defendant
-    if re.search(plaintiff_defendant_pattern, case.split('\n')[0]):
-        plaitiff_defendant = re.search(plaintiff_defendant_pattern, case.split('\n')[0]).groups() # tuple (plaintiff, defendant)
-    else:
-        plaitiff_defendant = ('Plaintiff', 'Defendant')
-    plaintiff_split = [word.lower() for word in plaitiff_defendant[0].split()]
-    defendant_split = [word.lower() for word in plaitiff_defendant[-1].split()]
     plaintiff_entities = ['plaintiff'] + plaintiff_split
     defendant_entities = ['defendant'] + defendant_split
 
-    features['plaintiff_mentioned'] = True if any(item in plaintiff_entities for item in tokens) else False
-    features['defendant_mentioned'] = True if any(item in defendant_entities for item in tokens) else False
-    features['value'] = percent_value
+    features['plaintiff_mentioned'] = True if any('plaintiff' in item for item in tokens) else False
+    features['defendant_mentioned'] = True if any('defendant' in item for item in tokens) else False
+    # features['value'] = percent_value
     features['start_idx_ratio'] = match.start()/len(case)
     features['reduce_lexicon'] = any(item in reduce_word for item in tokens for reduce_word in reduce_words)
     features['defendant and reduction'] = features['defendant_mentioned'] and features['reduce_lexicon']
