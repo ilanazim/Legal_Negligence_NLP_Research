@@ -11,7 +11,9 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_score, cross_val_predict
 from sklearn.metrics import f1_score, classification_report
+from sklearn.model_selection import train_test_split
 import math
+from nltk.tokenize import sent_tokenize, word_tokenize
 
 import numpy as np
 from nltk import sent_tokenize
@@ -21,7 +23,8 @@ from nltk.stem import WordNetLemmatizer
 from nltk.corpus import wordnet
 from nltk import pos_tag
 
-def rule_based_parse_BCJ(path, damage_model = None, damage_vectorizer = None, annotated_damages = {}, cn_model = None, cn_vectorizer = None, annotated_cn = {}, min_predict_proba = 0.5, high_precision_mode = False, include_no_damage_cases = False):
+
+def rule_based_parse_BCJ(path, damage_model = None, damage_vectorizer = None, annotated_damages = None, cn_model = None, cn_vectorizer = None, annotated_cn = None, min_predict_proba = 0.5, high_precision_mode = False, include_no_damage_cases = True):
     '''Given file path (text file) of negligence cases, finds static 
     information within the case (information that can be pattern matched)
     Expects a B.C.J. case format (British Columbia Judgments)
@@ -816,17 +819,20 @@ def get_percent_reduction_and_contributory_negligence_success(case_dict, case, m
  
     return percent_reduction, contributory_negligence_successful
 
-def train_classifier(path, clf = MultinomialNB(), context_length = 5, min_para_score = 0, min_predict_proba = 0.5, high_precision_mode = False):
+def train_classifier(path, clf = MultinomialNB(), context_length = 5, min_para_score = 0, min_predict_proba = 0.5, high_precision_mode = False, fit_model = False):
     '''Trains a classifier based on the given training data path
     
     Arguments:
     path (String) - Path to .txt containing training data
     clf - untrained sklearn classifier, ie MultinomialNB()
     
+    fit_model - if True it fits the model if false just returns the X, y, vectorizer
+    
     Returns:
     model (sklearn model) - Trained model
     vectorizer (sklearn DictVectorizer) - fit-transformed vectorizer
     case_damages (dict) - Dictionarry mapping annotated damages to their cross-validated predictions
+
     '''
     tag_extractor = re.compile('''<damage type ?= ?['"](.*?)['"]> ?(\$?.*?) ?<\/damage>''')
     CN_tag_extractor = re.compile('''<percentage type ?= ?['"](.*?)['"]> ?(\$?.*?) ?<\/percentage>''')
@@ -882,18 +888,33 @@ def train_classifier(path, clf = MultinomialNB(), context_length = 5, min_para_s
     print('\nVectorizing...')    
     vectorizer = DictVectorizer()
     feats = list(chain.from_iterable(examples_per_case)) # Puts it into one big list
+
+    # Delete the "value" and "float" feature. Easier to do this way
+    # because we use the cleaned money amount elsewhere
+    values = [feat['float'] for feat in feats]
+    value_locations = [feat['start_idx_ratio'] for feat in feats]
+
+    for feat in feats:
+        del feat['value']
+        del feat['float']
+
     X = vectorizer.fit_transform(feats)
     y = list(chain.from_iterable(answers_per_case))
     
     print('Tag Distribution')
     dist = Counter(y)
     print(dist)
+
+    
+    
+    if not fit_model:
+        return X, y, vectorizer
     
     # get cross-validated predictions for annotated training data
     values = [feat['float'] for feat in feats]
     value_locations = [feat['start_idx_ratio'] for feat in feats]
-    y_pred = cross_val_predict(clf, X, y, cv = 3) 
-    y_prob = cross_val_predict(clf, X, y, cv = 3, method='predict_proba')
+    y_pred = cross_val_predict(clf, X, y, cv = 10) 
+    y_prob = cross_val_predict(clf, X, y, cv = 10, method='predict_proba')
     
     values_per_case = [len(vals) for vals in examples_per_case] #number of tagged values in each case
     
@@ -960,13 +981,26 @@ def extract_features(match, case, dmg_pattern, cn_pattern = None, context_length
         
     start_idx = match.start()
     end_idx = match.end()
+
+    # Detect all <header> </header> tags
+    header_regex = re.compile('''<header>(.*?)</header>''')
+    headers = header_regex.finditer(case)
+    current_heading = ''
+    # Look for the one that is closest to the start idx (but occurs before it!)
+    for header in headers:
+        if header.end() < start_idx:
+            current_heading = header.group(1).lower()
+
+    feature_heading = dict(Counter(current_heading.split()))
+    feature_heading = {k+'@Heading': v for k, v in feature_heading.items()}
+    features.update(feature_heading)
     
     # Get 10 + Context Length on each side 
     # Used to get rid of damage tags within context around our match
     # We want to avoid getting half a damage tag else it wont be removed
     # So we get more than we need.
-    start_tokenized = ' '.join(case[:start_idx].split()[-context_length-10:])
-    end_tokenized = ' '.join(case[end_idx:].split()[:context_length+10])
+    start_tokenized = ' '.join(case[:start_idx].split()[-context_length-30:])
+    end_tokenized = ' '.join(case[end_idx:].split()[:context_length+30])
 
     if purpose == 'train':
         if cn_pattern is None:
@@ -987,11 +1021,24 @@ def extract_features(match, case, dmg_pattern, cn_pattern = None, context_length
         for e_cn in end_matches_cn:
             end_tokenized = end_tokenized.replace(e_cn.group(0), e_cn.group(2))
 
+    # Remove header tags from text. No need to regex these because they are always the same
+    start_tokenized = start_tokenized.replace('<header>', '')
+    start_tokenized = start_tokenized.replace('</header>', '')
+
+    end_tokenized = end_tokenized.replace('<header>', '')
+    end_tokenized = end_tokenized.replace('</header>', '')
+
     # Reconstruct sentence
     start_tokenized = start_tokenized.split()[-context_length:]
     end_tokenized = end_tokenized.split()[:context_length]
-    tokens = ' '.join(start_tokenized) + " " + damage_value + " " + ' '.join(end_tokenized)
-    value_start_idx = len(start_tokenized) # Location of value in relation to sentence (token level)
+    #tokens = ' '.join(start_tokenized) + " " + damage_value + " " + ' '.join(end_tokenized)
+
+    # Grab only the sentence value is in - rather than the entire context length
+    start_tokenized = sent_tokenize(' '.join(start_tokenized))[-1]
+    end_tokenized = sent_tokenize(' '.join(end_tokenized))[0]
+    tokens = start_tokenized + " " + damage_value + " " + end_tokenized    
+
+    value_start_idx = len(start_tokenized.split()) # Location of value in relation to sentence (token level)
     if len(damage_value.split()) > 1: # Deals with problems like '2 million' (where value is multiple tokens)
         value_end_idx = value_start_idx + len(damage_value.split()) - 1
     else:
@@ -1008,6 +1055,18 @@ def extract_features(match, case, dmg_pattern, cn_pattern = None, context_length
     features['value'] = damage_value
     features['float'] = clean_money_amount([damage_value.strip('$')])
     features['start_idx_ratio'] = match.start()/len(case)
+
+    # Money "bins"
+    if features['float'] < 1000:
+        features['range'] = '< 1000'
+    elif features['float'] < 25000:
+        features['range'] = '1000 - 25000'
+    elif features['float'] < 100000:
+        features['range'] = '25000 - 100000'
+    elif features['float'] < 500000:
+        features['range'] = '100000 - 500000'
+    else:
+        features['range'] = '500000+'
     
     # next and previous word
     if len(before) > 0:
@@ -1018,7 +1077,42 @@ def extract_features(match, case, dmg_pattern, cn_pattern = None, context_length
         features['next word'] = after[0]
     else:
         features['next word'] = ''
+
+    # Bigrams
+    if len(before) >= 2:
+        features['prev bigram'] = before[-2] + ' ' + before[-1]
+    elif len(before) == 1:
+        features['prev bigram'] = before[-1]
+    else:
+        features['prev bigram'] = ''
     
+
+    if len(after) >= 2:
+        features['next bigram'] = after[0] + ' ' + after[1]
+    elif len(after) == 1:
+        features['next bigram'] = after[0]
+    else:
+        features['next bigram'] = ''
+
+    # Trigrams
+    if len(before) >= 3:
+        features['prev trigram'] = before[-3] + ' ' + before[-2] + ' ' + before[-1]
+    elif len(before) == 2:
+        features['prev trigram'] = features['prev bigram']
+    elif len(before) == 1:
+        features['prev trigram'] = features['prev word']
+    else:
+        features['prev trigram'] = ''
+
+    if len(after) >= 3:
+        features['next trigram'] = after[0] + ' ' + after[1] + ' ' + after[2]
+    elif len(after) == 2:
+        features['next trigram'] = features['next bigram']
+    elif len(after) == 1:
+        features['next trigram'] = features['next word']
+    else:
+        features['next trigram'] = ''
+
     # BOW features
     features_bow_b = dict(Counter(before))
     features_bow_b = {k+'@Before': v for k, v in features_bow_b.items()}
@@ -1026,8 +1120,30 @@ def extract_features(match, case, dmg_pattern, cn_pattern = None, context_length
     features_bow_a = {k+'@After': v for k, v in features_bow_a.items()}
     features.update(features_bow_b)
     features.update(features_bow_a)
-    features.update(Counter(context.split()))
-    
+    bow = Counter(context.split())
+    features.update(bow)
+
+    # Distance Feature
+    # distance_feat = defaultdict(int)
+    # interesting_words = ['general', 'special', 'pecuniary', 'non-pecuniary', 'total', 'damage', 'damages',
+                         # 'housekeeping', 'suffering', 'pain', 'trust', 'punitive', 'aggravated']
+    # for idx, word in enumerate(tokens):
+    #     if word != damage_value and word in interesting_words:
+        #     if idx-value_start_idx <= -4:
+        #         distance_feat[word + '@-4'] += 1
+        #     elif idx-value_start_idx <= -2:
+        #         distance_feat[word + '@-2'] += 1
+        #     elif idx-value_start_idx == -1:
+        #         distance_feat[word + '@-1'] += 1
+        #     elif idx-value_start_idx == 1:
+        #         distance_feat[word + '@+1'] += 1
+        #     elif idx-value_start_idx >= 2 and idx-value_start_idx <= 4:
+        #         distance_feat[word + '@+2'] += 1
+        #     else:
+        #         distance_feat[word + '@+4'] += 1
+    #features.update(distance_feat)
+    #print(dist_feat)
+
     return features, damage_type
 
 def predict(case, clf, vectorizer, category='damages'):
