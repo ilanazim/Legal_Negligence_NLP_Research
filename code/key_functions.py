@@ -1625,7 +1625,7 @@ def extract_CN_features(match, case, dmg_pattern, cn_pattern = None, plaintiff_s
     # Reconstruct sentence
     start_tokenized = start_tokenized.split()[-context_length:]
     end_tokenized = end_tokenized.split()[:context_length]
-    tokens = ' '.join(start_tokenized) + " " + damage_value + " " + ' '.join(end_tokenized)
+    tokens = ' '.join(start_tokenized) + " " + percent_value + " " + ' '.join(end_tokenized)
     value_start_idx = len(start_tokenized) # Location of value in relation to sentence (token level)
     if len(percent_value.split()) > 1: # Deals with problems like '2 million' (where value is multiple tokens)
         value_end_idx = value_start_idx + len(percent_value.split()) - 1
