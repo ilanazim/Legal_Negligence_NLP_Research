@@ -24,11 +24,18 @@ The programming language used for the entire project is Python 3. The following 
 
 *packages that are included if you install Python via the Anaconda distribution.
 
-### Code Description
+### Description
 
 All code required to reproduce our visualizations can be found in `visualize.ipynb`. To open the notebook, you must have Jupyter Notebook or Jupyter Lab installed. The notebook has each cell producing a different type of chart. The charts will change depending on the model that is used to gather the results
  
 All code required to reproduce our results can be found in `key_functions.py`. Functions in this file are required by `visualize.ipynb`. The file is organized into several functions - some of which are meant to be helper functions to others. The main pipeline most users will use is described below.
+
+We have also included a saved copy of our best trained models in pickle format if you wish to skip the training part. The relevant files are named, `damage_model.pkl`, `damage_vectorizer.pkl`, `damage_annotations.pkl`, `cn_model.pkl`, `cn_vectorizer.pkl`, `cn_annotations.pkl`. The following code snippet may be used to read in the pickle files:
+
+```
+with open('damage_model.pkl', 'rb') as file:
+    dmg_model = pickle.load(file)
+```
 
 ##### Train the classifiers on the same training data
 
@@ -38,11 +45,11 @@ The relevant function to train the damage classifier is `train_classifier(...)` 
 
 Damage Classifier
 
-`dmg_model, dmg_vectorizer, annotations = kf.train_classifier('../data/annotations/all_annotations_CN_headers.txt', clf = LogisticRegression(C = 1, penalty='l2', solver = 'newton-cg', max_iter = 1000, random_state=42), context_length = 6, fit_model=True)`
+`dmg_model, dmg_vectorizer, annotations = kf.train_classifier('annotations.txt', clf = LogisticRegression(C = 1, penalty='l2', solver = 'newton-cg', max_iter = 1000, random_state=42), context_length = 6, fit_model=True)`
 
 CN Classifier
 
-` TODO IM UNSURE ABOUT WHAT THE BEST PARAMS ARE RIGHT NOW `
+`cn_model, cn_vectorizer, cn_annotations = kf.train_CN_classifier() TODO IM UNSURE ABOUT WHAT THE BEST PARAMS ARE RIGHT NOW `
 
 ##### Run Classifier on Unseen Data
 
@@ -64,45 +71,6 @@ for file_number in file_identifiers:
     
 ### Function Hierarchy
 
-Since many functions are helper functions that were not meant to be called on their own we have included a comprehensive list of which functions rely on which. 
+Below we have included the function hierarchy. Many functions are meant to be helper functions and not used on their own. The large squares with the blue background are the main functions that a user should be calling. The green and red boxes are both helper functions; red typically being even smaller helper functions compared to the green. Follow the colour coded lines to determien which functions call which. 
 
-* rule_based_parse_BCJ
-    * filter_unwanted_cases
-    * rule_based_multiple_defendants_parse
-    * plaintiff_wins
-    * predict
-        * extract_features
-            * clean_money_amount
-        * extract_CN_features
-            * get_wordnet_pos
-    * assign_classification_damages
-    * rule_based_damage_extraction
-        * get_matching_text
-        * assign_damage_to_category
-            * match_contains_words
-            * is_best_score
-        * clean_money_amount
-    * get_percent_reduction_and_contributory_negligence_success
-        * get_context_and_float
-        * conditions_for_extracted_value
-        * contributory_negligence_successful_fun
-        * summary_tokenize
-    * assign_classification_CN
-    * plaintiff_wins
-   
-* train_classifier
-    * filter_unwanted_cases
-    * summary_tokenize
-    * extract_features
-        * clean_money_amount
-    *
-    
-* train_CN_classifier
-    * filter_unwanted_cases
-    * summary_tokenize
-    * extract_CN_features
-        * get_wordnet_pos
-        
-* rule_based_convert_cases_to_DF
-* evaluate
-        
+![Function hierarchy drawing](./Imgs/functions.png)
