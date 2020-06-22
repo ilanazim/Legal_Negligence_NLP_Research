@@ -45,19 +45,21 @@ The relevant function to train the damage classifier is `train_classifier(...)` 
 
 Damage Classifier
 
-`dmg_model, dmg_vectorizer, annotations = kf.train_classifier('annotations.txt', clf = LogisticRegression(C = 1, penalty='l2', solver = 'newton-cg', max_iter = 1000, random_state=42), context_length = 6, fit_model=True)`
+(Note: Adjust path to annotations as necessary)
+
+`dmg_model, dmg_vectorizer, annotations = kf.train_classifier('annotations.txt', clf = LogisticRegression(C = 1, penalty = 'l2', solver = 'newton-cg', max_iter = 1000, random_state=42), context_length = 6, fit_model=True)`
 
 CN Classifier
 
-`cn_model, cn_vectorizer, cn_annotations = kf.train_CN_classifier() TODO IM UNSURE ABOUT WHAT THE BEST PARAMS ARE RIGHT NOW `
+`cn_model, cn_vectorizer, cn_annotations = kf.train_CN_classifier('annotations.txt', clf = LogisticRegression(C = 1, penalty = 'l1', class_weight = 'balanced', solver = 'liblinear', max_iter = 10000, random_state = 42), context_length = 6) `
 
 ##### Run Classifier on Unseen Data
 
-Next, run the classifier model on the rest of the dataset. The dataset is organized into 85 different text files that are titled `P1.txt`, `P2.txt`, ... `P85.txt`. The following code snippet gives an example of how to provide the path to the function `rule_based_parse_BCJ` along with the classifier models. The function has many parameters that you can use to filter different types of results
+Next, run the classifier model on the rest of the dataset. The dataset is organized into 85 different text files that are titled `P1.txt`, `P2.txt`, ... `P85.txt`. The following code snippet gives an example of how to provide the path to the function `parse_BCJ` along with the classifier models. Make sure to adjust the path to the data as necessary. The function has many parameters that you can use to filter different types of results
 
 ```
 # Setup path variables
-path_to_data = '../../data/Lexis Cases txt header/'
+path_to_data = '../data/Lexis Cases txt header/'
 file_prefix = 'P'
 file_suffix = '.txt'
 file_identifiers = range(1, 86) # Range from 1 to 85
@@ -65,7 +67,7 @@ file_identifiers = range(1, 86) # Range from 1 to 85
 clf_results = []
 for file_number in file_identifiers:
     print('## Processing ' + path_to_data + file_prefix + str(file_number) + file_suffix + ' ##', end='\r')
-    clf_results.extend(kf.rule_based_parse_BCJ(path_to_data + file_prefix + str(file_number) + file_suffix, damage_model = dmg_model, damage_vectorizer = dmg_vectorizer, annotated_damages = annotations, cn_model = cn_model, cn_vectorizer = cn_vec, annotated_cn = cn_annotations, min_predict_proba = 0.5))
+    clf_results.extend(kf.parse_BCJ(path_to_data + file_prefix + str(file_number) + file_suffix, damage_model = dmg_model, damage_vectorizer = dmg_vectorizer, annotated_damages = annotations, cn_model = cn_model, cn_vectorizer = cn_vectorizer, annotated_cn = cn_annotations, min_predict_proba = 0.5, dmg_context_length = 6, cn_context_length = 2))
 ```
     
     
