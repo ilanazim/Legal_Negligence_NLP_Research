@@ -21,7 +21,6 @@ from itertools import chain
 from nltk.stem import WordNetLemmatizer
 from nltk.corpus import wordnet
 from nltk import pos_tag
-from sklearn.feature_extraction.text import TfidfTransformer
 
 def parse_BCJ(path, damage_model = None, damage_vectorizer = None, annotated_damages = None, cn_model = None, cn_vectorizer = None, annotated_cn = None, min_predict_proba = 0.5, high_precision_mode = False, include_no_damage_cases = True, dmg_context_length = 5, cn_context_length = 5):
     '''Given file path (text file) of negligence cases, finds static 
@@ -916,6 +915,11 @@ def train_classifier(path, clf = MultinomialNB(), context_length = 5, min_para_s
     values = [feat['float'] for feat in feats]
     value_locations = [feat['start_idx_ratio'] for feat in feats]
 
+    # Delete value/float feature to discourage overfitting
+    for feat in feats:
+        del feat['value']
+        del feat['float']
+
     X = vectorizer.fit_transform(feats)
     y = list(chain.from_iterable(answers_per_case))
     
@@ -925,16 +929,6 @@ def train_classifier(path, clf = MultinomialNB(), context_length = 5, min_para_s
 
     if not fit_model:
         return X, y, vectorizer
-    
-    # get cross-validated predictions for annotated training data
-    values = [feat['float'] for feat in feats]
-    value_locations = [feat['start_idx_ratio'] for feat in feats]
-
-    # Delete value/float feature to discourage overfitting
-    for feat in feats:
-        del feat['value']
-        del feat['float']
-
 
     y_pred = cross_val_predict(clf, X, y, cv = 10) 
     y_prob = cross_val_predict(clf, X, y, cv = 10, method='predict_proba')
@@ -1605,7 +1599,7 @@ def assign_classification_CN(predictions, min_score = 0, min_predict_proba = 0.5
     else:
         return best_value
             
-def train_CN_classifier(path, clf = MultinomialNB(), min_para_score = 0, min_predict_proba = 0.7, context_length = 2):
+def train_CN_classifier(path, clf = MultinomialNB(), min_para_score = 0, min_predict_proba = 0.5, context_length = 2):
     '''Trains a classifier based on the given training data path
     Arguments:
     path (String) - Path to .txt containing training data
