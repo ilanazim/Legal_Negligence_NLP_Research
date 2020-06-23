@@ -4,6 +4,14 @@
 
 This README is meant to be a reference guide for using our code to reproduce our results. This README is assuming you have read our report and have a working understanding of the project.
 
+### Files
+
+[key_functions.py](https://github.ubc.ca/nikihm/Capstone-project/blob/master/code/key_functions.py) - Contains majority of codebase. Includes all functions needed for rule-based & classification based information extraction. Also includes code to train classifiers and evaluate. See graphic at bottom of file for visual of how functions are inter-linked.
+
+[visualize.ipynb](https://github.ubc.ca/nikihm/Capstone-project/blob/master/code/visualize.ipynb) - Contains all code used to create visualizations of our results.
+
+[DOCX to TXT format.ipynb](https://github.ubc.ca/nikihm/Capstone-project/blob/master/code/DOCX%20to%20TXT%20format.ipynb) - Contains code to convert LexisNexus cases from .DOCX to .TXT
+
 ### Pre-Requisites
 
 The programming language used for the entire project is Python 3. The following external packages need to be installed in order to run all code
@@ -36,6 +44,9 @@ We have also included a saved copy of our best trained models in pickle format i
 with open('saved_models/damage_model.pkl', 'rb') as file:
     dmg_model = pickle.load(file)
 ```
+##### Converting cases from .DOCX to .TXT
+
+To convert the LexisNexus cases from .DOCX form to .TXT, use the `DOCX to TXT converter.ipynb` in the `/code/` folder. The only things the user needs to change is the path to where the documents are located. Follow instructions in the notebook for more information.
 
 ##### Train the classifiers on the same training data
 
