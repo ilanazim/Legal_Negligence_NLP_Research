@@ -161,7 +161,7 @@ def parse_BCJ(path, damage_model = None, damage_vectorizer = None, annotated_dam
                 else:
                     predictions = predict(case, cn_model, cn_vectorizer, category='cn', context_length = cn_context_length)
                     percent_reduction_clf = assign_classification_CN(predictions) 
-                if percent_reduction_clf:
+                if percent_reduction_clf and contributory_negligence_successful:
                     case_dict['percent_reduction'] = percent_reduction_clf
                 else:
                     case_dict['percent_reduction'] = percent_reduction*0.01 if percent_reduction != None else None
@@ -1138,33 +1138,11 @@ def extract_features(match, case, dmg_pattern, cn_pattern = None, context_length
     # BOW features
     features_bow_b = dict(Counter(before))
     features_bow_b = {k+'@Before': v for k, v in features_bow_b.items()}
-    features_bow_a = dict(Counter(after))
-    features_bow_a = {k+'@After': v for k, v in features_bow_a.items()}
+
     features.update(features_bow_b)
-    features.update(features_bow_a)
     bow = Counter(context.split())
     features.update(bow)
 
-    # Distance Feature
-    # distance_feat = defaultdict(int)
-    # interesting_words = ['general', 'special', 'pecuniary', 'non-pecuniary', 'total', 'damage', 'damages',
-                         # 'housekeeping', 'suffering', 'pain', 'trust', 'punitive', 'aggravated']
-    # for idx, word in enumerate(tokens):
-    #     if word != damage_value and word in interesting_words:
-        #     if idx-value_start_idx <= -4:
-        #         distance_feat[word + '@-4'] += 1
-        #     elif idx-value_start_idx <= -2:
-        #         distance_feat[word + '@-2'] += 1
-        #     elif idx-value_start_idx == -1:
-        #         distance_feat[word + '@-1'] += 1
-        #     elif idx-value_start_idx == 1:
-        #         distance_feat[word + '@+1'] += 1
-        #     elif idx-value_start_idx >= 2 and idx-value_start_idx <= 4:
-        #         distance_feat[word + '@+2'] += 1
-        #     else:
-        #         distance_feat[word + '@+4'] += 1
-    #features.update(distance_feat)
-    #print(dist_feat)
 
     return features, damage_type
 
@@ -1675,6 +1653,14 @@ def train_CN_classifier(path, clf = MultinomialNB(), min_para_score = 0, min_pre
     assert len(examples_per_case) == len(answers_per_case)
 
     feats = list(chain.from_iterable(examples_per_case)) # Puts it into one big list
+
+    values = [feat['float'] for feat in feats]
+    value_locations = [feat['start_idx_ratio'] for feat in feats]
+
+    # Delete start_idx_ratio feature before training classifier
+    for feat in feats:
+        del feat['start_idx_ratio']
+    assert 'start_idx_ratio' not in feats[0]
     
     print('\nVectorizing...')
     vectorizer= DictVectorizer()
@@ -1685,10 +1671,9 @@ def train_CN_classifier(path, clf = MultinomialNB(), min_para_score = 0, min_pre
     dist = Counter(y)
     print(dist)
 
-    values = [feat['float'] for feat in feats]
-    value_locations = [feat['start_idx_ratio'] for feat in feats]
-    y_pred = cross_val_predict(clf, X, y, cv = 3) 
-    y_prob = cross_val_predict(clf, X, y, cv = 3, method='predict_proba')
+    
+    y_pred = cross_val_predict(clf, X, y, cv = 10) 
+    y_prob = cross_val_predict(clf, X, y, cv = 10, method='predict_proba')
     
     values_per_case = [len(vals) for vals in examples_per_case] #number of values in each case
     
@@ -1723,29 +1708,7 @@ def train_CN_classifier(path, clf = MultinomialNB(), min_para_score = 0, min_pre
     clf.fit(X, y)
     return clf, vectorizer, case_percents #feats_train, feats_test, y_train, y_test #clf, vectorizer
 
-def get_wordnet_pos(treebank_tag):
-    '''Based on treebank_tag, returns the relevant wordnet part of speech tag
 
-    Arguments:
-    treebank_tag: Tag from treebank
-
-    Returns:
-    wordnet POS tag or "n"
-    '''
-
-    if treebank_tag.startswith('J'):
-        return wordnet.ADJ
-    elif treebank_tag.startswith('V'):
-        return wordnet.VERB
-    elif treebank_tag.startswith('N'):
-        return wordnet.NOUN
-    elif treebank_tag.startswith('R'):
-        return wordnet.ADV
-    else:
-        return 'n'
-
-
-wordnet_lemmatizer = WordNetLemmatizer()
 def extract_CN_features(match, case, dmg_pattern, cn_pattern = None, plaintiff_split = ['plaintiff'], defendant_split = ['defendant'], context_length = 2, purpose = 'train'):
     '''Given a match will return the features associated with the specific example
     Extracts the examples by finding the percent annotation tags
@@ -1803,21 +1766,14 @@ def extract_CN_features(match, case, dmg_pattern, cn_pattern = None, plaintiff_s
     # Reconstruct sentence
     start_tokenized = start_tokenized.split()[-context_length:]
     end_tokenized = end_tokenized.split()[:context_length]
-    tokens = ' '.join(start_tokenized) + " " + damage_value + " " + ' '.join(end_tokenized)
+    tokens = ' '.join(start_tokenized) + " " + percent_value + " " + ' '.join(end_tokenized)
     value_start_idx = len(start_tokenized) # Location of value in relation to sentence (token level)
     if len(percent_value.split()) > 1: # Deals with problems like '2 million' (where value is multiple tokens)
         value_end_idx = value_start_idx + len(percent_value.split()) - 1
     else:
         value_end_idx = value_start_idx
 
-    # lemmatize for BOW - get POS for lemmatizer from 'get_wordnet_pos'
-    new_tokens = []
     tokens = tokens.replace('per cent', 'percent').split()
-    for pair in pos_tag(tokens): #tuple (word, POS)
-        pos = get_wordnet_pos(pair[-1])
-        token = pair[0].strip('.')
-        new_tokens.append(wordnet_lemmatizer.lemmatize(token, pos))
-    tokens = new_tokens
 
     # Features: BOW before, BOW after, BOW, contributory negligence in text, plaintiff/defendant name matches, value, location
     start_boundary = value_start_idx - context_length if value_start_idx - context_length >= 0 else 0
@@ -1862,6 +1818,17 @@ def extract_CN_features(match, case, dmg_pattern, cn_pattern = None, plaintiff_s
         features['float'] = False
     else:
         features['float'] = float(percent_value.split()[0].strip('%'))*0.01
+
+    # Percent "bins"
+    if features['float']:
+        if features['float'] < 0.1:
+            features['range'] = '< 10%'
+        elif features['float'] < 0.5:
+            features['range'] = '10% - 50%'
+        elif features['float'] < 0.75:
+            features['range'] = '50%-75%'
+        else:
+            features['range'] = '75%+' 
 
     if purpose == 'train':
         return features, percent_type
