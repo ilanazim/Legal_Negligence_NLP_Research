@@ -1321,7 +1321,7 @@ def assign_classification_damages(predictions, min_score = 0, min_predict_proba 
     
     return damages     
 
-def rule_based_convert_cases_to_DF(cases):
+def convert_cases_to_DF(cases):
     '''Given a list of parsed cases returns a dataframe
 
     Arguments:
