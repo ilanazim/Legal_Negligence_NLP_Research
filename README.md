@@ -49,3 +49,9 @@ Plaintiff's was awarded woth non-pecuniary damages of \<damage type = 'non pecun
 
 
 #### [Teamwork_contract: ](https://github.ubc.ca/nikihm/Capstone-project/blob/master/Docs/Team_contract.md) Contrat between group members, working hours and terms and conditions 
+
+### Data Product
+
+#### [Data Product README](https://github.ubc.ca/nikihm/Capstone-project/blob/master/Docs/data_product_README.md)
+
+#### [Code](https://github.ubc.ca/nikihm/Capstone-project/tree/master/code)
