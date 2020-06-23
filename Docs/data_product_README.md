@@ -55,7 +55,7 @@ CN Classifier
 
 ##### Run Classifier on Unseen Data
 
-Next, run the classifier model on the rest of the dataset. The dataset is organized into 85 different text files that are titled `P1.txt`, `P2.txt`, ... `P85.txt`. The following code snippet gives an example of how to provide the path to the function `parse_BCJ` along with the classifier models. Make sure to adjust the path to the data as necessary. The function has many parameters that you can use to filter different types of results
+Next, run the classifier model on the rest of the dataset. The dataset is organized into 85 different text files that are titled `P1.txt`, `P2.txt`, ... `P85.txt`. The following code snippet gives an example of how to provide the path to the function `parse_BCJ` along with the classifier models. Make sure to adjust the path to the data as necessary. The function has many parameters that you can use to filter different types of results. **Note: You can run the rule-based approach by not supplying any damage or CN model to `parse_BCJ`**
 
 ```
 # Setup path variables
@@ -69,6 +69,23 @@ for file_number in file_identifiers:
     print('## Processing ' + path_to_data + file_prefix + str(file_number) + file_suffix + ' ##', end='\r')
     clf_results.extend(kf.parse_BCJ(path_to_data + file_prefix + str(file_number) + file_suffix, damage_model = dmg_model, damage_vectorizer = dmg_vectorizer, annotated_damages = annotations, cn_model = cn_model, cn_vectorizer = cn_vectorizer, annotated_cn = cn_annotations, min_predict_proba = 0.5, dmg_context_length = 6, cn_context_length = 2))
 ```
+
+##### Convert data into a dataframe or CSV & evaluation
+
+If you are running the model over new data - you will be unable to evaluate unless you create a gold set. The gold set used to evaluate our model is included in the `data/` folder. Before evaluating, the data must be converted into a dataframe. The function `convert_cases_to_DF` takes in a list of cases and returns them in dataframe format. Dataframe format is easier to work with and can easily be saved as a CSV. See example below of converting the results achieved in the last code block into a dataframe and running an evaluation
+
+```
+df = kf.convert_cases_to_DF(clf_results)
+
+gold_df = pd.read_csv('../data/gold_annotations.csv')
+gold_df.dropna(how = 'all', inplace=True) 
+
+kf.evaluate(df, gold_df)
+```
+
+The dataframe can be saved as a CSV (which can be manipulated with any spreadsheet program such as Excel)
+
+`df.to_csv('my_data.csv', index = False)`
     
     
 ### Function Hierarchy
