@@ -724,6 +724,22 @@ def contributory_negligence_successful_fun(context, keywords):
     return
 
 def get_percent_reduction_and_contributory_negligence_success(case_dict, case, min_score = 0.6):
+    '''Given a dictionary with case attributes, the raw string of the entire case, and a minimum paragraph location score, 
+    applies rules to determine if contributory negligence is successful, and the corresponding percent reduction if applicable.
+    --------------
+    Arguments:
+    case_dict (dict) - dictonary mapping case features to their values. 
+    Must inclide keys "case_title", "contributory_negligence_raised". and "plaintiff_wins"
+    case (str) - string of a BCJ legal negligence case
+    [Optional] min_score (float) - the min paragraph location ratio, between 0 and 1
+    
+    Returns: 
+    percent_reduction (float or None) - the percent the damages were reduced if contributroy negligence successful, else None
+    contributory_negligence_successful (bool) - whether or not contributroy negligence is successful if raised
+
+    '''
+
+    assert ('case_title' in case_dict) and ('contributory_negligence_raised' in case_dict) and ('percent_reduction' in case_dict)
     paragraphs = paragraph_tokenize(case)
     case_title = case_dict['case_title']
     assert paragraphs[0] == case_title
@@ -744,6 +760,7 @@ def get_percent_reduction_and_contributory_negligence_success(case_dict, case, m
     defendant_split = [word.lower() for word in plaitiff_defendant[-1].split()]
     entities = ['defendant', 'plaintiff'] + plaintiff_split + defendant_split 
 
+    # only consider cases where contributory negligence is raised and the plaintiff wins
     if case_dict['contributory_negligence_raised'] and case_dict['plaintiff_wins']:
         percent_reduction = None
         best_percent = None
