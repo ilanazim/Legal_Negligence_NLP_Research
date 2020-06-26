@@ -22,7 +22,7 @@ from nltk.stem import WordNetLemmatizer
 from nltk.corpus import wordnet
 from nltk import pos_tag
 
-def parse_BCJ(path, damage_model = None, damage_vectorizer = None, annotated_damages = None, cn_model = None, cn_vectorizer = None, annotated_cn = None, min_predict_proba = 0.5, high_precision_mode = False, include_no_damage_cases = True, dmg_context_length = 5, cn_context_length = 5):
+def parse_BCJ(document_data, damage_model = None, damage_vectorizer = None, annotated_damages = None, cn_model = None, cn_vectorizer = None, annotated_cn = None, min_predict_proba = 0.5, high_precision_mode = False, include_no_damage_cases = True, dmg_context_length = 5, cn_context_length = 5):
     '''Given file path (text file) of negligence cases, finds static 
     information within the case (information that can be pattern matched)
     Expects a B.C.J. case format (British Columbia Judgments)
@@ -38,7 +38,7 @@ def parse_BCJ(path, damage_model = None, damage_vectorizer = None, annotated_dam
     - Plaintiff Wins
     
     Arguments: 
-    doc (String): The case in text format following the form used in the DOCX to TXT notebook
+    document_data (String): The case in text format following the form used in the DOCX to TXT notebook
     [Optional] damage_model (sklearn model) - Used for damage classification. If not supplied uses rule based
     [Optional] damage_vectorizer (DictVectorizer) Used for damage classification. If not supplied uses rule based
     [Optional] annotated_damages (dict) The results of cross-validation classification for annotated damages, mapping case title to the predicted damages, only if using damage classifier.
@@ -53,8 +53,6 @@ def parse_BCJ(path, damage_model = None, damage_vectorizer = None, annotated_dam
 
     Returns: case_parsed_data (list) of case_dict (Dictionary): List of Dictionaries with rule based parsable fields filled in
     '''
-    with open(path, encoding='utf-8') as document:
-        document_data = document.read()
         
     document_data = document_data.split('End of Document\n') # Always split on 'End of Document\n'
     case_parsed_data = []
@@ -721,7 +719,7 @@ def contributory_negligence_successful_fun(context, keywords):
         if 'plaintiff' or 'damages' or 'defendant' in context:
             contributory_negligence_successful = True
             return contributory_negligence_successful
-    return
+    return False
 
 def get_percent_reduction_and_contributory_negligence_success(case_dict, case, min_score = 0.6):
     '''Given a dictionary with case attributes, the raw string of the entire case, and a minimum paragraph location score, 
@@ -738,8 +736,7 @@ def get_percent_reduction_and_contributory_negligence_success(case_dict, case, m
     contributory_negligence_successful (bool) - whether or not contributroy negligence is successful if raised
 
     '''
-
-    assert ('case_title' in case_dict) and ('contributory_negligence_raised' in case_dict) and ('percent_reduction' in case_dict)
+    assert ('case_title' in case_dict) and ('contributory_negligence_raised' in case_dict) and ('plaintiff_wins' in case_dict)
     paragraphs = paragraph_tokenize(case)
     case_title = case_dict['case_title']
     assert paragraphs[0] == case_title
