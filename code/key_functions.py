@@ -11,8 +11,9 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_score, cross_val_predict
 from sklearn.metrics import f1_score, classification_report
+from sklearn.model_selection import train_test_split
 import math
-
+from nltk.tokenize import sent_tokenize, word_tokenize
 import numpy as np
 from nltk import sent_tokenize
 from nltk.corpus import stopwords
@@ -21,7 +22,7 @@ from nltk.stem import WordNetLemmatizer
 from nltk.corpus import wordnet
 from nltk import pos_tag
 
-def rule_based_parse_BCJ(path, damage_model = None, damage_vectorizer = None, annotated_damages = None, cn_model = None, cn_vectorizer = None, annotated_cn = None):
+def parse_BCJ(path, damage_model = None, damage_vectorizer = None, annotated_damages = None, cn_model = None, cn_vectorizer = None, annotated_cn = None, min_predict_proba = 0.5, high_precision_mode = False, include_no_damage_cases = True, dmg_context_length = 5, cn_context_length = 5):
     '''Given file path (text file) of negligence cases, finds static 
     information within the case (information that can be pattern matched)
     Expects a B.C.J. case format (British Columbia Judgments)
@@ -44,6 +45,12 @@ def rule_based_parse_BCJ(path, damage_model = None, damage_vectorizer = None, an
     [Optional] cn_model (sklearn model) - Used for contributory negligence percent classification. If not supplied uses rule based
     [Optional] cn_vectorizer (DictVectorizer) Used for contributory negligence percent classification. If not supplied uses rule based
     [Optional] annotated_cn (dict) The results of cross-validation classification for annotated percent values, mapping case title to the predicted damages, only if using damage classifier.
+    [Optional] min_predict_proba (float) - When classifying, sets the min confidence a tag must have to be assigned
+    [Optional] high_precision_mode (bool) - When classifying, if true, will never sum or use "sub-" tags. Only high precision predictions.
+    [Optional] include_no_damage_cases (bool) - If true, will include cases where no damages are awarded. If false, will only return cases where it found damages.
+    [Optional] dmg_context_length (int) - The number of words around a damage to use as context if using a classifier approach
+    [Optional] cn_context_length (int) - The number of words around a percent to use as context if using a classifier approach
+
     Returns: case_parsed_data (list) of case_dict (Dictionary): List of Dictionaries with rule based parsable fields filled in
     '''
     with open(path, encoding='utf-8') as document:
@@ -64,16 +71,19 @@ def rule_based_parse_BCJ(path, damage_model = None, damage_vectorizer = None, an
         case_title = lines[0]
         case_type = lines[1]
 
+        # If the case should be included in our analysis...
         if filter_unwanted_cases(case, case_title, case_type):
+            # ----
             # Fields that can be found via pattern matching
+            # ----
+
             if re.search('contributory negligence', case, re.IGNORECASE):
-                contributory_negligence_raised = True
+                case_dict['contributory_negligence_raised'] = True
             else:
-                contributory_negligence_raised = False
-            case_number = re.search(r'\/P([0-9]+)\.txt', path).group(1)
+                case_dict['contributory_negligence_raised'] = False
             decision_len = re.search(r'\(([0-9]+) paras\.?\)', case) # e.g.) (100 paras.)
             registry = re.search(r'(Registry|Registries): ?([A-Za-z0-9 ]+)', case) # e.g.) Registry: Vancouver
-            written_decision = True if int(decision_len.group(1)) > 1 else False
+            case_dict['written_decision'] = True if int(decision_len.group(1)) > 1 else False
             if registry:
                 registry = registry.group(2).strip()
             else:
@@ -86,43 +96,57 @@ def rule_based_parse_BCJ(path, damage_model = None, damage_vectorizer = None, an
                         registry = registry.group(1).strip()
                     else:
                         print('WARNING: Registry could not be found (This shouldn\'t occur!)')
+
+            case_dict['decision_length'] = decision_len.group(1)
+            case_dict['registry'] = registry
+
+            # ----
             # Fields that are always in the same place
+            # ----
+
             judge_name = lines[4].strip()
             case_title = lines[0].strip()
-            # Extract year from case_title (in case we want to make visualizations, etc.)
-            year = re.search(r'20[0-2][0-9]', case_title) # Limit regex to be from 2000 to 2029
+            year = re.search(r'20[0-2][0-9]', case_title) # Year in case title. Limit regex to be from 2000 to 2029
             if year:
                 year = year.group(0)
             else:
-                # Rare case: Sometimes the title is too long. Rely on Heard date.
+                # Rare case: Sometimes the title is too long. Rely on Heard date instead.
                 year = re.search(r'Heard:.* ([2][0][0-2][0-9])', case)
                 if year:
                     year = year.group(1)
                 else:
                     print('WARNING: Year not found')
-            case_dict['case_number'] = '%s of %s'%(i+1+((int(case_number)-1)*50), case_number)
             case_dict['case_title'] = case_title
             case_dict['year'] = year
-            case_dict['registry'] = registry
             case_dict['judge'] = judge_name
-            case_dict['decision_length'] = decision_len.group(1)
+
+            # ----
+            # Fields that require some parsing
+            # ----
+
             case_dict['multiple_defendants'] = rule_based_multiple_defendants_parse(case)
-            case_dict['contributory_negligence_raised'] = contributory_negligence_raised
-            case_dict['written_decision'] = written_decision
-            
             case_dict['plaintiff_wins'] = plaintiff_wins(case)
+
+            # ----
+            # Damages
+            # ----
                         
-            if case_dict['plaintiff_wins'] == 'Y':
+            if case_dict['plaintiff_wins'] == True:
+                # Only use classifier if model, vectorizer, and already annotated cases not supplied
                 if damage_model and damage_vectorizer and annotated_damages:
                     if case_title in annotated_damages:
                         case_dict['damages'] = annotated_damages[case_title]
                     else:
-                        predictions = predict(case, damage_model, damage_vectorizer)
-                        case_dict['damages'] = assign_classification_damages(predictions)
+                        predictions = predict(case, damage_model, damage_vectorizer, context_length = dmg_context_length)
+                        case_dict['damages'] = assign_classification_damages(predictions, min_predict_proba = min_predict_proba, high_precision_mode = high_precision_mode)
                 else:
                     case_dict['damages'] = rule_based_damage_extraction(case)  
             else:
                 case_dict['damages'] = None
+
+            # ----
+            # Contributory Negligence
+            # ----
             
             # find a way to not use rule based to get CN successful
             percent_reduction, contributory_negligence_successful = get_percent_reduction_and_contributory_negligence_success(case_dict, case)
@@ -135,9 +159,9 @@ def rule_based_parse_BCJ(path, damage_model = None, damage_vectorizer = None, an
                     else:
                         case_dict['percent_reduction'] = percent_reduction
                 else:
-                    predictions = predict(case, cn_model, cn_vectorizer, category='cn')
+                    predictions = predict(case, cn_model, cn_vectorizer, category='cn', context_length = cn_context_length)
                     percent_reduction_clf = assign_classification_CN(predictions) 
-                if percent_reduction_clf:
+                if percent_reduction_clf and contributory_negligence_successful:
                     case_dict['percent_reduction'] = percent_reduction_clf
                 else:
                     case_dict['percent_reduction'] = percent_reduction*0.01 if percent_reduction != None else None
@@ -146,20 +170,24 @@ def rule_based_parse_BCJ(path, damage_model = None, damage_vectorizer = None, an
             case_dict['contributory_negligence_successful'] = contributory_negligence_successful
              
         
-        # don't add empty dictionaries (non BCJ cases) to list
-        if case_dict != dict(): 
-            case_parsed_data.append(case_dict)
+        if include_no_damage_cases:
+            if case_dict != dict(): 
+                case_parsed_data.append(case_dict)
+        else:  
+            if case_dict != dict() and case_dict['damages'] != None: 
+                case_parsed_data.append(case_dict)
     return case_parsed_data
 
 def rule_based_multiple_defendants_parse(doc):
-    ''' Helper function for rule_based_parse_BCJ
+    ''' Helper function for parse_BCJ
     
     Given a case. Uses regex/pattern-matching to determine whether we have multiple defendants.
     For the most part the logic relies on whether the langauge used implies plurality or not.
     
     Arguments: doc (String): The case in text format following the form used in the DOCX to TXT notebook
-    Returns: response (String, 'Y', 'N', or 'UNK')
+    Returns: response (True, False, or 'UNK')
     '''
+    assert len(doc) > 0
 
     # Case 1)
     # Traditional/most common. Of form "Between A, B, C, Plaintiff(s), X, Y, Z Defendant(s)"
@@ -171,9 +199,9 @@ def rule_based_multiple_defendants_parse(doc):
     if regex_between_plaintiff_claimant:
         text = regex_between_plaintiff_claimant.group(0).lower()
         if 'defendants' in text or 'respondents' in text or 'applicants' in text: # Defendant/respondent same thing.
-            return 'Y'
+            return True
         elif 'defendant' in text or 'respondent' in text or 'applicant' in text:
-            return 'N'
+            return False
     
     # If not found, try other less common cases
     else:
@@ -184,16 +212,16 @@ def rule_based_multiple_defendants_parse(doc):
         if regex_missing_defendent:
             text = regex_missing_defendent.group(0).lower()
             if len(text.split(',')) > 5:
-                return 'Y'
+                return True
             else:
-                return 'N'
+                return False
             
         else:
             print('Multiple defendants: Unknown! Unable to regex match')
             return 'UNK'
         
 def rule_based_damage_extraction(doc, min_score = 0.9, max_match_len_split = 10):
-    '''Helper function for rule_based_parse_BCJ
+    '''Helper function for parse_BCJ
     
     Given a case, attempts to extract damages using regex patterns
     
@@ -207,7 +235,7 @@ def rule_based_damage_extraction(doc, min_score = 0.9, max_match_len_split = 10)
     
     '''
     damages = defaultdict(float)
-    repetition_detection = defaultdict(set) # try to stem the repeated values
+    repetition_detection = defaultdict(set) # Used to stem adding repeated values
     no_paras = re.search(r'\(([0-9|,]+) paras?\.?\)', doc).group(1) # Get number of paragraphs
     pattern = r'([.]?)(?=\n[0-9]{1,%s}[\xa0|\s| ]{2})'%len(no_paras) # Used to split into paras
     paras_split = re.split(pattern, doc)
@@ -227,9 +255,6 @@ def rule_based_damage_extraction(doc, min_score = 0.9, max_match_len_split = 10)
     
     # Rule based dmg extraction REGEX patterns
     regex_damages = r'[\w|-]* ?(?:damage|loss|capacity|cost).+?\$? ?[0-9][0-9|,|.]+[0-9]'
-    #regex_damages = r'(?:[\w|-]* ?){0,3}(?:damage|loss|capacity|cost).+?\$? ?[0-9][0-9|,|.]+[0-9]'
-    #regex_in_trust = r'(?:in-?trust|award).*?\$? ?[0-9][0-9|,|.]+[0-9]'
-    #regex_damages = r'(?![and])(?:[\w|-]* ?){0,2} ?(?:damage|loss|capacity|cost).+?\$? ?[0-9][0-9|,|.]+[0-9]'
     regex_damages_2 = r'[^:] \$? ?[0-9][0-9|,|.]+[0-9] (?:for|representing)?[ \w\-+]+damages?'
     regex_damages_3 = r'[^:] \$? ?[0-9][0-9|,|.]+[0-9] (?:for|representing)?[ \w\-+]+damages?(?:(?:for|representing)?.*?[;.\n])'
     regex_future_care_loss = r'(?:future|past|in[-| ]?trust|award).*?(?:loss|costs?|income|care)?.*?\$? ?[0-9][0-9|,|.]+[0-9]'
@@ -248,7 +273,7 @@ def rule_based_damage_extraction(doc, min_score = 0.9, max_match_len_split = 10)
     counter_words = ['summary', 'dismissed'] # Unless these are mentioned. 
                                              # example) "Special damage is $5k. But claims for aggravated are 'dismissed'" 
     
-    # Get money mounts from the text
+    # Get money amounts from the text
     total = None
     matches = []
     summary_matches = []
@@ -284,7 +309,7 @@ def rule_based_damage_extraction(doc, min_score = 0.9, max_match_len_split = 10)
     if len(summary_matches) > 0: 
         matches = summary_matches
 
-    # Extract $ value. Determine correct column
+    # Extract $ value from paragraphs with money in them. Determine correct column
     regex_number_extraction = r' ?[0-9][0-9|,|.]+[0-9]'
     for score, match in matches:
         skip = False # Banned words should not appear in final matches
@@ -334,6 +359,8 @@ def rule_based_damage_extraction(doc, min_score = 0.9, max_match_len_split = 10)
     columns = ['Total', 'Pecuniary Total', 'Non Pecuniary', 'Special', 'General', 'Punitive', 'Aggravated', 'Future Care']
     for c in columns:
         damages[c] = None if damages[c] == 0 else damages[c]
+        if damages[c] != None:
+            assert damages[c] > 0
     
     return damages
 
@@ -372,7 +399,7 @@ def assign_damage_to_category(damage, damage_keywords, match, match_score, match
     return value_belongs
 
 def clean_money_amount(money_regex_match):
-    '''Helper function for rule based damage extraction.
+    '''Helper function to extract float from a money regex match
     
     Arguments:
     money_regex_match (Regex.findall object) - Match of $ amount
@@ -494,12 +521,6 @@ def filter_unwanted_cases(case, case_title, case_type):
     '''Given a case, its title & type, determines whether the case
     is relevant or not for our analysis
     
-    Removes crown cases 'R.v.'
-    Removes '(Re)' cases
-    Removes client-solicitor cases
-    Removes IN THE MATTER OF cases where plaintiff/defendant is not mentioned
-    Removes non 'British Columbia Judgments' cases
-    
     Arguments:
     case (string) - Case data in string form
     case_title (string) - Case title (line 1 of case)
@@ -566,10 +587,13 @@ def filter_unwanted_cases(case, case_title, case_type):
 
 
 def paragraph_tokenize(case):
-    ''' Takes string input the of wntire document (case) and returns list of lists of paragraphs in the document.
-    ---------
-    Input: case (str) - string of single legal case
-    Return: case_data(list) - list of of numbrered paragraphs in the document where the first item is the case_title'''
+    ''' Takes string input of the entire document (case) and returns list of lists of paragraphs in the document.
+    
+    Arguments: 
+    case (str) - string of single legal case
+    
+    Returns:
+    case_data(list) - list of of numbrered paragraphs in the document where the first item is the case_title'''
     
     case_data = []
     lines = case.split('\n')
@@ -593,8 +617,10 @@ def paragraph_tokenize(case):
 
 def summary_tokenize(case):
     ''' String of Entire Document and returns the document summary and HELD section.
-    ---------
-    Input: case (str) - string of single legal case
+
+    Arguments: 
+    case (str) - string of single legal case
+
     Return: Tuple: summary (str)- summary and HELD section of case (str)
                     summart start idx (int)
                     summary end idx (int)'''
@@ -614,7 +640,8 @@ def get_context_and_float(value, text, context_length = 8, plaintiff_name = 'Pla
     value - percent match found in text
     text - string value where matches were extracted from, eg paragraph or summary (str)
     context_length - the length of context around each quantity to return
-    Rerturn:
+    
+    Returns:
     value_context - string of context around value (str)
     extracted_value - string quantity value extracted to its float equivalent'''
     
@@ -624,7 +651,7 @@ def get_context_and_float(value, text, context_length = 8, plaintiff_name = 'Pla
     amount = re.findall(r'[0-9]+[0-9|,]*(?:\.[0-9]+)?', value)
     extracted_value = clean_money_amount(amount) #use helper function to get float of dollar/percent value
     if not extracted_value:
-        print('ERROR: cant convert string, %s'%value)
+        print('\nERROR: cant convert string\n', amount)
         return context, None
     # get indices of last instance of value in text - tokenize like this for values of type 'per cent and percent'
     start_idx = text.rfind(value)
@@ -654,7 +681,7 @@ def conditions_for_extracted_value(context, extracted_value, keywords, plaintiff
     a list of the Plaintiffs names (ie John Doe), a list of the defendants names, and a combined list of entities(ie plaintiff, john, doe, defendant):
     Return: the modifed extracted value (float)
     ------------
-    Arugments:
+    Arguments:
     context: (str)
     extracted_value: (float) found in context
     keywords, plaintiff_split, defendant_split, entities: (list) of strings
@@ -688,6 +715,7 @@ def contributory_negligence_successful_fun(context, keywords):
     Arguments:
     context (str)
     keywords(list)
+
     Returns: True or None (bool)'''
     if any(word in context for word in keywords):
         if 'plaintiff' or 'damages' or 'defendant' in context:
@@ -695,7 +723,7 @@ def contributory_negligence_successful_fun(context, keywords):
             return contributory_negligence_successful
     return
 
-def get_percent_reduction_and_contributory_negligence_success(case_dict, case, min_score = 0.9):
+def get_percent_reduction_and_contributory_negligence_success(case_dict, case, min_score = 0.6):
     paragraphs = paragraph_tokenize(case)
     case_title = case_dict['case_title']
     assert paragraphs[0] == case_title
@@ -765,8 +793,8 @@ def get_percent_reduction_and_contributory_negligence_success(case_dict, case, m
                         best_percent = 50.0
                         contributory_negligence_successful = True
         
-        if best_score == 0 or not best_percent or not contributory_negligence_successful:
-            # no percents found in paragraphs - time to check summary - same process
+        if not contributory_negligence_successful:
+            # no CN percents found in paragraphs - time to check summary - same process
             summary, summary_start_idx, summary_end_idx = summary_tokenize(case)
             if summary:
                 summary = summary.lower()
@@ -809,16 +837,23 @@ def get_percent_reduction_and_contributory_negligence_success(case_dict, case, m
  
     return percent_reduction, contributory_negligence_successful
 
-def train_classifier(path, clf = MultinomialNB()):
-    '''Trains a classifier based on the given training data path
+def train_classifier(path, clf = MultinomialNB(), context_length = 5, min_para_score = 0, min_predict_proba = 0.5, high_precision_mode = False, fit_model = False):
+    '''Trains a damages classifier based on the given training data path
     
     Arguments:
     path (String) - Path to .txt containing training data
-    clf - untrained sklearn classifier, ie MultinomialNB()
+    clf (sklearn classifier instance) - untrained sklearn classifier, ie MultinomialNB()
+    [Optional] context_length (int) - Number of words around each value to include in features. Default 5.
+    [Optional] min_para_score (float) - Value must have this min para score to be used as a feature. Score ranges from 0 to 1. Default 0
+    [Optional] min_predict_proba (float) - Classifier must be this confident in order to assign the damage. Default 0.5
+    [Optional] high_precision_mode (boolean) - If true, will not add up any "sub-" values in order to maintain better precision
+    [Optional] fit_model (boolean) - if True it fits the model if false just returns the X, y, vectorizer
     
     Returns:
     model (sklearn model) - Trained model
     vectorizer (sklearn DictVectorizer) - fit-transformed vectorizer
+    case_damages (dict) - Dictionarry mapping annotated damages to their cross-validated predictions
+
     '''
     tag_extractor = re.compile('''<damage type ?= ?['"](.*?)['"]> ?(\$?.*?) ?<\/damage>''')
     CN_tag_extractor = re.compile('''<percentage type ?= ?['"](.*?)['"]> ?(\$?.*?) ?<\/percentage>''')
@@ -847,14 +882,15 @@ def train_classifier(path, clf = MultinomialNB()):
         
         case_examples = []
         case_answers = []
-        if filter_unwanted_cases(case, case_title, case_type):
-            # lower case and remove stopwords. 
+        if filter_unwanted_cases(case, case_title, case_type):  
+            summary = summary_tokenize(case)
+            # lower case and remove stopwords
             case = ' '.join([word for word in case.lower().split() if word not in stop_words])
             summary, summary_start_idx, summary_end_idx = summary_tokenize(case)
             
             matches = tag_extractor.finditer(case) # Extract all <damage ...>$x</damage> tags used for training
             for match in matches:
-                features, answer = extract_features(match, case, tag_extractor, CN_tag_extractor)
+                features, answer = extract_features(match, case, tag_extractor, CN_tag_extractor, context_length = context_length, purpose='train')
                 # if value is found in case summary, replace start_idx_ratio with 1
                 if summary:
                     if match.start() >= summary_start_idx and match.end() <= summary_end_idx and answer != 'other':
@@ -873,18 +909,29 @@ def train_classifier(path, clf = MultinomialNB()):
     print('\nVectorizing...')    
     vectorizer = DictVectorizer()
     feats = list(chain.from_iterable(examples_per_case)) # Puts it into one big list
+
+    # Delete the "value" and "float" feature. Easier to do this way
+    # because we use the cleaned money amount elsewhere
+    values = [feat['float'] for feat in feats]
+    value_locations = [feat['start_idx_ratio'] for feat in feats]
+
+    # Delete value/float feature to discourage overfitting
+    for feat in feats:
+        del feat['value']
+        del feat['float']
+
     X = vectorizer.fit_transform(feats)
     y = list(chain.from_iterable(answers_per_case))
     
     print('Tag Distribution')
     dist = Counter(y)
     print(dist)
-    
-    # get cross-validated predictions for annotated training data
-    values = [feat['float'] for feat in feats]
-    value_locations = [feat['start_idx_ratio'] for feat in feats]
-    y_pred = cross_val_predict(clf, X, y, cv = 3) 
-    y_prob = cross_val_predict(clf, X, y, cv = 3, method='predict_proba')
+
+    if not fit_model:
+        return X, y, vectorizer
+
+    y_pred = cross_val_predict(clf, X, y, cv = 10) 
+    y_prob = cross_val_predict(clf, X, y, cv = 10, method='predict_proba')
     
     values_per_case = [len(vals) for vals in examples_per_case] #number of tagged values in each case
     
@@ -909,7 +956,7 @@ def train_classifier(path, clf = MultinomialNB()):
     case_damages = defaultdict(dict)
     for i in range(len(prediction_feats_per_case)):
         case_preds = prediction_feats_per_case[i]
-        damages = assign_classification_damages(case_preds)
+        damages = assign_classification_damages(case_preds, min_score = min_para_score, min_predict_proba = min_predict_proba, high_precision_mode = high_precision_mode)
         case_damages[case_titles[i]].update(damages)
 
     print('Cross validation evaluation...')
@@ -922,7 +969,7 @@ def train_classifier(path, clf = MultinomialNB()):
     clf.fit(X, y)
     return clf, vectorizer, case_damages
 
-def extract_features(match, case, dmg_pattern, cn_pattern = None, context_length = 5, purpose = 'train'):
+def extract_features(match, case, dmg_pattern, cn_pattern = None, context_length = 4, purpose = 'train'):
     '''Given a match will return the features associated with the specific example
     Extracts the examples by finding the damage annotation tags
     in the form <damage type = "TYPE">$5000</damage>
@@ -951,13 +998,26 @@ def extract_features(match, case, dmg_pattern, cn_pattern = None, context_length
         
     start_idx = match.start()
     end_idx = match.end()
+
+    # Detect all <header> </header> tags
+    header_regex = re.compile('''<header>(.*?)</header>''')
+    headers = header_regex.finditer(case)
+    current_heading = ''
+    # Look for the one that is closest to the start idx (but occurs before it!)
+    for header in headers:
+        if header.end() < start_idx:
+            current_heading = header.group(1).lower()
+
+    feature_heading = dict(Counter(current_heading.split()))
+    feature_heading = {k+'@Heading': v for k, v in feature_heading.items()}
+    features.update(feature_heading)
     
-    # Get 3 * Context Length on each side 
+    # Get 10 + Context Length on each side 
     # Used to get rid of damage tags within context around our match
     # We want to avoid getting half a damage tag else it wont be removed
     # So we get more than we need.
-    start_tokenized = ' '.join(case[:start_idx].split()[-context_length*3:])
-    end_tokenized = ' '.join(case[end_idx:].split()[:context_length*3])
+    start_tokenized = ' '.join(case[:start_idx].split()[-context_length-30:])
+    end_tokenized = ' '.join(case[end_idx:].split()[:context_length+30])
 
     if purpose == 'train':
         if cn_pattern is None:
@@ -978,8 +1038,25 @@ def extract_features(match, case, dmg_pattern, cn_pattern = None, context_length
         for e_cn in end_matches_cn:
             end_tokenized = end_tokenized.replace(e_cn.group(0), e_cn.group(2))
 
+    # Remove header tags from text. No need to regex these because they are always the same
+    start_tokenized = start_tokenized.replace('<header>', '')
+    start_tokenized = start_tokenized.replace('</header>', '')
+
+    end_tokenized = end_tokenized.replace('<header>', '')
+    end_tokenized = end_tokenized.replace('</header>', '')
+
     # Reconstruct sentence
-    tokens = start_tokenized + " " + damage_value + " " + end_tokenized 
+    start_tokenized = start_tokenized.split()[-context_length:]
+    end_tokenized = end_tokenized.split()[:context_length]
+    #tokens = ' '.join(start_tokenized) + " " + damage_value + " " + ' '.join(end_tokenized)
+
+    # Grab only the sentence value is in - rather than the entire context length
+    start_tok_sent = sent_tokenize(' '.join(start_tokenized))
+    start_tokenized = start_tok_sent[-1] if len(start_tok_sent) >= 1 else ''
+    end_tok_sent = sent_tokenize(' '.join(end_tokenized))
+    end_tokenized = end_tok_sent[0] if len(end_tok_sent) >= 1 else ''
+    tokens = start_tokenized + " " + damage_value + " " + end_tokenized    
+
     value_start_idx = len(start_tokenized.split()) # Location of value in relation to sentence (token level)
     if len(damage_value.split()) > 1: # Deals with problems like '2 million' (where value is multiple tokens)
         value_end_idx = value_start_idx + len(damage_value.split()) - 1
@@ -997,6 +1074,21 @@ def extract_features(match, case, dmg_pattern, cn_pattern = None, context_length
     features['value'] = damage_value
     features['float'] = clean_money_amount([damage_value.strip('$')])
     features['start_idx_ratio'] = match.start()/len(case)
+
+    assert features['float'] >= 0
+    assert features['start_idx_ratio'] >= 0
+
+    # Money "bins"
+    if features['float'] < 1000:
+        features['range'] = '< 1000'
+    elif features['float'] < 25000:
+        features['range'] = '1000 - 25000'
+    elif features['float'] < 100000:
+        features['range'] = '25000 - 100000'
+    elif features['float'] < 500000:
+        features['range'] = '100000 - 500000'
+    else:
+        features['range'] = '500000+'
     
     # next and previous word
     if len(before) > 0:
@@ -1007,34 +1099,70 @@ def extract_features(match, case, dmg_pattern, cn_pattern = None, context_length
         features['next word'] = after[0]
     else:
         features['next word'] = ''
+
+    # Bigrams
+    if len(before) >= 2:
+        features['prev bigram'] = before[-2] + ' ' + before[-1]
+    elif len(before) == 1:
+        features['prev bigram'] = before[-1]
+    else:
+        features['prev bigram'] = ''
     
+
+    if len(after) >= 2:
+        features['next bigram'] = after[0] + ' ' + after[1]
+    elif len(after) == 1:
+        features['next bigram'] = after[0]
+    else:
+        features['next bigram'] = ''
+
+    # Trigrams
+    if len(before) >= 3:
+        features['prev trigram'] = before[-3] + ' ' + before[-2] + ' ' + before[-1]
+    elif len(before) == 2:
+        features['prev trigram'] = features['prev bigram']
+    elif len(before) == 1:
+        features['prev trigram'] = features['prev word']
+    else:
+        features['prev trigram'] = ''
+
+    if len(after) >= 3:
+        features['next trigram'] = after[0] + ' ' + after[1] + ' ' + after[2]
+    elif len(after) == 2:
+        features['next trigram'] = features['next bigram']
+    elif len(after) == 1:
+        features['next trigram'] = features['next word']
+    else:
+        features['next trigram'] = ''
+
     # BOW features
     features_bow_b = dict(Counter(before))
     features_bow_b = {k+'@Before': v for k, v in features_bow_b.items()}
-    features_bow_a = dict(Counter(after))
-    features_bow_a = {k+'@After': v for k, v in features_bow_a.items()}
+
     features.update(features_bow_b)
-    features.update(features_bow_a)
-    features.update(Counter(context.split()))
-    
+    bow = Counter(context.split())
+    features.update(bow)
+
+
     return features, damage_type
 
-def predict(case, clf, vectorizer, category='damages'):
+def predict(case, clf, vectorizer, category='damages', context_length = 5):
     '''Given a legal negligence case (str), a trained classifier, and a fit_transformed DictVectorizer(), 
     Return a list of tuples of (value, prediction, value_location), where value_location is the ratio of the 
     character start index 
     ----------------------
     Arguments:
-    case: legal negligence case (str)
-    clf: trained classifier with .fit method
-    vecotrizer: fit_transformed vectorizer (sklean DictVectorizer())
-    category: type of prediction being made, default 'damages' (str)
+    case (String): legal negligence case 
+    clf (Sklearn classifier instance): trained classifier with .fit method
+    vectorizer (Sklearn DictVectorizer()): fit_transformed vectorizer 
+    category (String): type of prediction being made, default 'damages' 
     ----------------------
-    Return: list of tuples or an empty list if no matches in the case
+    Returns: list of tuples or an empty list if no matches in the case
     Example: 
     case = 'I award $5,000 in punitive damages.'
     predict(case, clf, vectorizer)
-    > [($5,000, 'punitive', 0.023)]'''
+    > [(MONEY, TYPE, LOCATION, PROBABILITY)]
+    > [($5,000, 'punitive', 0.023, 0.95)]'''
     
     stop_words = set(stopwords.words('english'))
     if category == 'damages':
@@ -1046,9 +1174,6 @@ def predict(case, clf, vectorizer, category='damages'):
     value_locations = []
     values = []
 
-    
-    
-
     # Remove stopwords, lowercase, and update summary idx
     case = ' '.join([word for word in case.lower().split() if word not in stop_words])
     summary, summary_start_idx, summary_end_idx = summary_tokenize(case)
@@ -1057,9 +1182,9 @@ def predict(case, clf, vectorizer, category='damages'):
     for match in matches:
         # extract features per match found
         if category == 'damages':
-            features, _ = extract_features(match, case, value_extractor, purpose = 'predict')
+            features, _ = extract_features(match, case, value_extractor, purpose = 'predict', context_length = context_length)
         else:
-            features, _ = extract_CN_features(match, case, value_extractor, purpose = 'predict')
+            features, _ = extract_CN_features(match, case, value_extractor, purpose = 'predict', context_length = context_length)
 
         if summary:
             if match.start() >= summary_start_idx and match.end() <= summar_end_idx:
@@ -1078,13 +1203,15 @@ def predict(case, clf, vectorizer, category='damages'):
     else:
         return []
     
-def assign_classification_damages(predictions, min_score = 0):
+def assign_classification_damages(predictions, min_score = 0, min_predict_proba = 0.5, high_precision_mode = False):
     '''Helper function for rule based BCJ
     Handles assigning predictions into final damage amounts
     
     Arguments:
     predictions (tuple returned from predict function)
     min_score (float) - If a prediction appears before this point in the case it is discarded
+    min_predict_proba (float) - The minimum confidence a tag has before it can be assigned
+    high_precision_mode (boolean) - If true, will not add any "sub-" categories to maintain higher precision
     
     Returns:
     damages (defaultdict(float)) - Damages with values filled in based on predictions
@@ -1096,62 +1223,116 @@ def assign_classification_damages(predictions, min_score = 0):
         if ratio < min_score:
             continue
         
-        if max(predict_proba) > 0.5:
+        if max(predict_proba) > min_predict_proba:
             temporary_damages[prediction_type].append(value)
 
 
-    # Currently not dealing with "reduction" or "total after" (or total - manually adding)
-    damages['Future Care'] = temporary_damages['future care'][-1] if len(temporary_damages['future care']) != 0 \
-                             else sum(temporary_damages['sub-future care'])
+    # High Precision Mode: Only assigns damage if the final damage tag is found
+    # Does not add up and "sub-total" values
+    # Only adds things like "In-Trust" and "Special" so long as both tags are found
+    if high_precision_mode:
+        damages['Pecuniary Total'] = None
+        damages['Future Care'] = temporary_damages['future care'][0] if len(temporary_damages['future care']) != 0 \
+                                 else None
+        damages['Future Wage Loss'] = temporary_damages['future wage loss'][0] if len(temporary_damages['future wage loss']) != 0 \
+                                      else None 
+        damages['General'] = temporary_damages['general'][0] if len(temporary_damages['general']) != 0 \
+                             else None
+        damages['In Trust'] = temporary_damages['in trust'][0] if len(temporary_damages['in trust']) != 0 \
+                             else None
+        damages['Non Pecuniary'] = temporary_damages['non pecuniary'][0] if len(temporary_damages['non pecuniary']) != 0 \
+                             else None
+        damages['Past Wage Loss'] = temporary_damages['past wage loss'][0] if len(temporary_damages['past wage loss']) != 0 \
+                             else None
+        damages['Punitive'] = temporary_damages['punitive'][0] if len(temporary_damages['punitive']) != 0 \
+                             else None
+        damages['Special'] = temporary_damages['special'][0] if len(temporary_damages['special']) != 0 \
+                             else None
+        damages['Aggravated'] = temporary_damages['aggravated'][0] if len(temporary_damages['aggravated']) != 0 \
+                             else None
+        damages['Total'] = temporary_damages['total'][0] if len(temporary_damages['total']) != 0 \
+                             else None
         
-    damages['Future Wage Loss'] = temporary_damages['future wage loss'][-1] if len(temporary_damages['future wage loss']) != 0 \
-                                  else sum(temporary_damages['sub-future wage loss'])
-        
-    damages['General'] = temporary_damages['general'][-1] if len(temporary_damages['general']) != 0 \
-                         else sum(temporary_damages['sub-general'])
+        # Only sum damages that actually had the tag itself predicted
+        if damages['Future Wage Loss']:
+            if damages['General']:
+                damages['General'] += damages['Future Wage Loss']
+            else:
+                damages['General'] = damages['Future Wage Loss']
+        if damages['Past Wage Loss']:
+            if damages['Special']:
+                damages['Special'] += damages['Past Wage Loss']
+            else:
+                damages['Special'] = damages['Past Wage Loss']
+        if damages['In Trust']:
+            if damages['Special']:
+                damages['Special'] += damages['In Trust']
+            else:
+                damages['Special'] = damages['In Trust']
+        if damages['Special']:
+            damages['Pecuniary Total'] = damages['Special']
+        if damages['General']:
+            if damages['Pecuniary Total']:
+                damages['Pecuniary Total'] += damages['General']
+            else:
+                damages['Pecuniary Total'] = damages['General']
+        if damages['Future Care']:
+            if damages['Pecuniary Total']:
+                damages['Pecuniary Total'] += damages['Future Care']
+            else:
+                damages['Pecuniary Total'] = damages['Future Care']
     
-    damages['In Trust'] = temporary_damages['in trust'][-1] if len(temporary_damages['in trust']) != 0 \
-                         else sum(temporary_damages['sub-in trust'])
+    # "Low" precision mode
+    # Adds up the sub- categories
+    else:
+        damages['Future Care'] = temporary_damages['future care'][-1] if len(temporary_damages['future care']) != 0 \
+                                 else sum(temporary_damages['sub-future care'])
+        damages['Future Wage Loss'] = temporary_damages['future wage loss'][-1] if len(temporary_damages['future wage loss']) != 0 \
+                                      else sum(temporary_damages['sub-future wage loss'])
+        damages['General'] = temporary_damages['general'][-1] if len(temporary_damages['general']) != 0 \
+                             else sum(temporary_damages['sub-general'])
+        damages['In Trust'] = temporary_damages['in trust'][-1] if len(temporary_damages['in trust']) != 0 \
+                             else sum(temporary_damages['sub-in trust'])
+        damages['Non Pecuniary'] = temporary_damages['non pecuniary'][-1] if len(temporary_damages['non pecuniary']) != 0 \
+                             else sum(temporary_damages['sub-non pecuniary'])
+        damages['Past Wage Loss'] = temporary_damages['past wage loss'][-1] if len(temporary_damages['past wage loss']) != 0 \
+                             else sum(temporary_damages['sub-past wage loss'])
+        damages['Punitive'] = temporary_damages['punitive'][-1] if len(temporary_damages['punitive']) != 0 \
+                             else sum(temporary_damages['sub-punitive'])
+        damages['Special'] = temporary_damages['special'][-1] if len(temporary_damages['special']) != 0 \
+                             else sum(temporary_damages['sub-special'])
+        damages['Aggravated'] = temporary_damages['aggravated'][-1] if len(temporary_damages['aggravated']) != 0 \
+                             else sum(temporary_damages['sub-saggravated'])
+        damages['Total'] = temporary_damages['total'][-1] if len(temporary_damages['total']) != 0 \
+                             else sum(temporary_damages['sub-total'])
+        damages['General'] += damages['Future Wage Loss']
+        damages['Special'] += damages['Past Wage Loss'] + damages['In Trust']
+        damages['Pecuniary Total'] = damages['Special'] + damages['General'] + damages['Future Care']
     
-    damages['Non Pecuniary'] = temporary_damages['non pecuniary'][-1] if len(temporary_damages['non pecuniary']) != 0 \
-                         else sum(temporary_damages['sub-non pecuniary'])
-    
-    damages['Past Wage Loss'] = temporary_damages['past wage loss'][-1] if len(temporary_damages['past wage loss']) != 0 \
-                         else sum(temporary_damages['sub-past wage loss'])
-    
-    damages['Punitive'] = temporary_damages['punitive'][-1] if len(temporary_damages['punitive']) != 0 \
-                         else sum(temporary_damages['sub-punitive'])
-
-    damages['Special'] = temporary_damages['special'][-1] if len(temporary_damages['special']) != 0 \
-                         else sum(temporary_damages['sub-special'])
-    
-    damages['Aggravated'] = temporary_damages['aggravated'][-1] if len(temporary_damages['aggravated']) != 0 \
-                         else sum(temporary_damages['sub-saggravated'])
-    
-    damages['Total'] = temporary_damages['total'][-1] if len(temporary_damages['total']) != 0 \
-                         else None
-    
-    damages['General'] += damages['Future Wage Loss']
-    damages['Special'] += damages['Past Wage Loss'] + damages['In Trust']
-
-    damages['Pecuniary Total'] = damages['Special'] + damages['General'] + damages['Future Care']
-    
-    # Only sum up damages if we weren't able to properly extract it from the text.
-#     if damages['Total'] is None:
-#         damages['Total'] = damages['Pecuniary Total'] + damages['Non Pecuniary'] + damages['Aggravated']
+        # Only sum up damages if we weren't able to properly extract it from the text.
+        if damages['Total'] is None:
+            damages['Total'] = damages['Pecuniary Total'] + damages['Non Pecuniary'] + damages['Aggravated']
     
     columns = ['Total', 'Pecuniary Total', 'Non Pecuniary', 'Special', 'General', 'Punitive', 'Aggravated', 'Future Care']
     for c in columns:
         damages[c] = None if damages[c] == 0 else damages[c]
+        if damages[c] != None:
+            assert damages[c] >= 0
     
     return damages     
 
-def rule_based_convert_cases_to_DF(cases):
-    '''Given a list of parsed cases returns a dataframe'''
+def convert_cases_to_DF(cases):
+    '''Given a list of parsed cases returns a dataframe
+
+    Arguments:
+    cases (list of dict): Each item in list is an entire parsed case in dictionary form
+
+    Returns:
+    df (DataFrame): pandas dataframe containing case information
+    '''
 
     lists = defaultdict(list)    
     for case in cases:
-        lists['Case Number'].append(case['case_number'])
         lists['Case Name'].append(case['case_title'])
         lists['Year'].append(case['year'])
         lists['Total Damage'].append(case['damages']['Total'] if case['damages'] != None else None)
@@ -1173,19 +1354,34 @@ def rule_based_convert_cases_to_DF(cases):
         lists['Percent Reduction'].append(case['percent_reduction'])
         
     df = pd.DataFrame()
+    yes_no_columns = ['Written Decision?', 'Multiple defendants?', 'Contributory Negligence Raised', 'Contributory Negligence Successful', 'Plaintiff Wins?']
     for key in lists.keys():
-        df[key] = lists[key]
+        if key in yes_no_columns:
+            new_list = []
+            for value in lists[key]:
+                if value == True:
+                    new_list.append('Y')
+                elif value == False:
+                    new_list.append('N')
+                else:
+                    new_list.append(value)
+            df[key] = new_list
+        else:
+            df[key] = lists[key]
     
     return df
 
-def evaluate(dev_data, gold_data, subset=None):
+def evaluate(dev_data, gold_data, subset=None, focus_column=None):
     '''Evaluates the results against a gold standard set
     
     Arguments:
     dev_data (dataframe) - Dataframe containing results from rule based parse BCJ
     gold_data (dataframe) - Dataframe containing manually annotated data
-    (Optional) subset (list/string) - Specific columns to evaluate
+    [Optional] subset (list/string) - Specific columns to evaluate
+    [Optional] focus_column (string) - If set, will drop rows when the focus column is empty
+                                       Helpful for evaluating how a specific col performs when it makes a prediction
 
+    Returns: None
     '''
     
     print('#### Evaluation ####')
@@ -1197,6 +1393,13 @@ def evaluate(dev_data, gold_data, subset=None):
     # Filter data to only use overlapping items
     gold_data = gold_data[gold_data['Case Name'].isin(dev_case_names)]
     dev_data = dev_data[dev_data['Case Name'].isin(gold_case_names)]
+    assert gold_data.shape[0] == dev_data.shape[0]
+
+    # If we are focussing on a specific column. We drop results when it is NaN
+    # Useful because our model has high precision, low recall. Sometimes want
+    # to evaluate how model did when it actually made a prediction (its precision)
+    if focus_column:
+        dev_data.dropna(subset = [focus_column], inplace=True)
     
     # Mapping from our variable names to Lachlan's column names
     column_mapping = {'Decision Length': 'Decision Length: paragraphs)',
@@ -1256,7 +1459,7 @@ def evaluate(dev_data, gold_data, subset=None):
                             if math.isclose(dev_value, gold_value, abs_tol=1): # Tolerance within 1
                                 non_empty_correct += 1
                             else:
-                                errors.append(abs(dev_value - gold_value))
+                                errors.append(dev_value - gold_value)
                         elif dev_value == gold_value:
                             non_empty_correct += 1
                         
@@ -1270,16 +1473,20 @@ def evaluate(dev_data, gold_data, subset=None):
                     print('Filled field accuracy:', non_empty_correct / total_non_empty * 100, '%', non_empty_correct, '/', total_non_empty)
                 print('Overall accuracy:', (empty_correct+non_empty_correct) / (total_non_empty+total_empty) * 100, '%', (empty_correct+non_empty_correct), '/', (total_non_empty+total_empty))
 
-def plaintiff_wins(line):
-    '''This function will search the cases and returns a dictionary
-    with case names as keys and Y or N for value, Y if the plaintiff
-    wins the case and N if plaintiff looses'''
+def plaintiff_wins(case):
+    '''Determines whether plaintiff has won the case using a rule based approach
+
+    Arguments:
+    case (String) - Case in string format
+
+    Returns: True, False, or "OpenCase"
+    '''
     
     plaintiff_dict = {}
-    lines = line.strip().split("\n")
+    lines = case.strip().split("\n")
     name = lines[0]        
     # regex search for keyword HELD in cases, which determines if case was allowed or dismissed
-    HELD = re.search(r'HELD(.+)?', line)
+    HELD = re.search(r'HELD(.+)?', case)
     if HELD:
         matched = HELD.group(0)  
         # regex searching for words such as liablity, liable, negligance, negligant, convicted, convict in matched
@@ -1289,13 +1496,13 @@ def plaintiff_wins(line):
         # regex searching for damage/Damage/fault/faulty
         damage = re.search(r'(D|d)amage(.+)?.+|(fault(.+)?)', matched)
         if "allowed" in matched or "favour" in matched or "awarded" in matched or "granted" in matched or "accepted" in matched or "entitled" in matched or "guilty" in matched or liable or damage:
-            return "Y"
+            return True
 
         elif dismiss:
-            return "N"
+            return False
 
     else:
-        if line and name not in plaintiff_dict :
+        if case and name not in plaintiff_dict :
 
             last_paras = lines[-5]+" "+lines[-4]+" "+lines[-3]+" "+lines[-2]
             #regex searches for pattern of award ... plaintiff ...
@@ -1310,64 +1517,81 @@ def plaintiff_wins(line):
             damage = re.search(r'(D|d)amage(.+)?.+|(fault(.+)?)', last_paras)
 
             if dismiss and "not dismissed" not in last_paras:
-                return "N"
+                return False
             elif damage:
-                return "Y"
+                return True
             elif awarded:
-                return "Y"
+                return True
             elif entiteled:
-                return "Y"
+                return True
             elif successful:
-                return "Y"
+                return True
             elif costs:
-                return "Y"
+                return True
             else:
                 return "OpenCase"
 
 
-def assign_classification_CN(predictions, min_score = 0):
-        percent = 0
-        temporary_damages = defaultdict(list)
-        for value, prediction_type, ratio, predict_proba in predictions:
-            if ratio < min_score:
-                continue
-            
-            # not currently handling sub-cnd
-            if prediction_type == 'cnp':
-                if max(predict_proba) > 0.7: 
-                    # print(value, max(predict_proba))
-                    temporary_damages['cnp'].append((value, max(predict_proba)))
-            elif prediction_type == 'cnd':
-                if max(predict_proba) > 0.7: 
-                    print(value, max(predict_proba))
-                    temporary_damages['cnp'].append((1-value, max(predict_proba)))
+def assign_classification_CN(predictions, min_score = 0, min_predict_proba = 0.5):
+    '''Given a set of predictions for CN for a single case, function will
+    pull out the most probably answer and return it
+
+    Arguments:
+    predictions (list) - List of predictions made for the case
+    [Optional] min_score (float) - Minimum location ratio of the match. 0 being beginning of case, 1 being end of case. Default 0
+    [Optional] min_predict_proba (float) - Minimum confidence in prediction to be assigned. Default 0.5
+
+    Returns:
+    best_result (float) - Returns the most probably CN percent reduction. Or None if it can't find one.
+    '''
+    percent = 0
+    temporary_damages = defaultdict(list)
+    for value, prediction_type, ratio, predict_proba in predictions:
+        if ratio < min_score:
+            continue
         
-        # choose most probable value
-        best_value = 0
-        best_prob = 0
-        if len(temporary_damages['cnp']) > 0:
-            for pair in temporary_damages['cnp']:
-                prob = pair[-1]
-                value = pair[0]
-                if prob > best_prob:
-                    best_prob = prob
-                    best_value = value
-    #     percent = temporary_damages['cnp'][-1] if len(temporary_damages['cnp']) != 0 else None
-    #     return percent
-        if best_value == 0:
-            return 
-        else:
-            return best_value
+        # not currently handling sub-cnd
+        if prediction_type == 'cnp':
+            if max(predict_proba) > min_predict_proba: 
+                # print(value, max(predict_proba))
+                temporary_damages['cnp'].append((value, max(predict_proba)))
+        elif prediction_type == 'cnd':
+            if max(predict_proba) > min_predict_proba: 
+                # print(value, max(predict_proba))
+                temporary_damages['cnp'].append((1-value, max(predict_proba)))
+    
+    # choose most probable value
+    best_value = 0
+    best_prob = 0
+    if len(temporary_damages['cnp']) > 0:
+        for pair in temporary_damages['cnp']:
+            prob = pair[-1]
+            value = pair[0]
+            if prob > best_prob:
+                best_prob = prob
+                best_value = value
+
+#     return percent or None
+    if best_value == 0:
+        return 
+    else:
+        return best_value
             
-def train_CN_classifier(path, clf = MultinomialNB()):
+def train_CN_classifier(path, clf = MultinomialNB(), min_para_score = 0, min_predict_proba = 0.5, context_length = 2):
     '''Trains a classifier based on the given training data path
     Arguments:
     path (String) - Path to .txt containing training data
     clf - untrained sklearn classifier, ie MultinomialNB()
+    [Optional] min_score (float) - Minimum location ratio of the match. 0 being beginning of case, 1 being end of case. Default 0
+    [Optional] min_predict_proba (float) - Minimum confidence in prediction to be assigned. Default 0.5
+    [Optional] context_length (int) - Number of words around a percent to include in the features
+    
     Returns:
     model (sklearn model) - Trained model
     vectorizer (sklearn DictVectorizer) - fit-transformed vectorizer
+    case_percents (dict) - Dictionary mapping annotated percentages to their cross-validated predictions
     '''
+
     tag_extractor = re.compile('''<damage type ?= ?['"](.*?)['"]> ?(\$?.*?) ?<\/damage>''')
     CN_tag_extractor = re.compile('''<percentage type ?= ?['"](.*?)['"]> ?(\$?.*?) ?<\/percentage>''')
     stop_words = set(stopwords.words('english'))
@@ -1381,6 +1605,7 @@ def train_CN_classifier(path, clf = MultinomialNB()):
     num_cases = len(document_data)
     for i in range(len(document_data)):
         print('Reading training data and extracting features...', i / num_cases * 100, '%', end='\r')
+        
         case = document_data[i]
         case = case.strip() # Make sure to strip!
         if len(case) == 0: # Skip empty lines
@@ -1395,17 +1620,27 @@ def train_CN_classifier(path, clf = MultinomialNB()):
         case_examples = []
         case_answers = []
         if filter_unwanted_cases(case, case_title, case_type):
+
+            # plaintiff/defendant entities
+            plaintiff_defendant_pattern = r'(^[a-z].*)+ v\. ([a-z|-]+)+.*\n?(?:British Columbia Judgments)' # group 1 is plaintiff group 2 is defendant
+            entity_match = re.search(plaintiff_defendant_pattern, "\n".join(case.split('\n')[:3]), re.IGNORECASE)
+            if entity_match:
+                plaitiff_defendant = entity_match.groups() # tuple (plaintiff, defendant)
+            else:
+                plaitiff_defendant = ('Plaintiff', 'Defendant')
+            plaintiff_split = [word.lower() for word in plaitiff_defendant[0].split()]
+            defendant_split = [word.lower() for word in plaitiff_defendant[1].split()]
+
             # lower case and remove stopwords
             case = ' '.join([word for word in case.lower().split() if word not in stop_words])
             summary, summary_start_idx, summary_end_idx = summary_tokenize(case)
-            if summary:
-                summary = summary.group(1)
 
             matches = CN_tag_extractor.finditer(case) # Extract all <damage ...>$x</damage> tags used for training
             for match in matches:
-                features, answer = extract_CN_features(match, case, tag_extractor, CN_tag_extractor)
-                if match.start() >= summary_start_idx and match.end() <= summary_end_idx and answer != 'other':
-                    features['start_idx_ratio'] = 1
+                features, answer = extract_CN_features(match, case, tag_extractor, CN_tag_extractor, plaintiff_split, defendant_split, context_length = context_length)
+                if summary:
+                    if match.start() >= summary_start_idx and match.end() <= summary_end_idx and answer != 'other':
+                        features['start_idx_ratio'] = 1
                 
                 case_examples.append(features)
                 case_answers.append(answer)
@@ -1418,6 +1653,14 @@ def train_CN_classifier(path, clf = MultinomialNB()):
     assert len(examples_per_case) == len(answers_per_case)
 
     feats = list(chain.from_iterable(examples_per_case)) # Puts it into one big list
+
+    values = [feat['float'] for feat in feats]
+    value_locations = [feat['start_idx_ratio'] for feat in feats]
+
+    # Delete start_idx_ratio feature before training classifier
+    for feat in feats:
+        del feat['start_idx_ratio']
+    assert 'start_idx_ratio' not in feats[0]
     
     print('\nVectorizing...')
     vectorizer= DictVectorizer()
@@ -1428,10 +1671,9 @@ def train_CN_classifier(path, clf = MultinomialNB()):
     dist = Counter(y)
     print(dist)
 
-    values = [feat['float'] for feat in feats]
-    value_locations = [feat['start_idx_ratio'] for feat in feats]
-    y_pred = cross_val_predict(clf, X, y, cv = 3) 
-    y_prob = cross_val_predict(clf, X, y, cv = 3, method='predict_proba')
+    
+    y_pred = cross_val_predict(clf, X, y, cv = 10) 
+    y_prob = cross_val_predict(clf, X, y, cv = 10, method='predict_proba')
     
     values_per_case = [len(vals) for vals in examples_per_case] #number of values in each case
     
@@ -1456,7 +1698,7 @@ def train_CN_classifier(path, clf = MultinomialNB()):
     case_percents = defaultdict(float)
     for i in range(len(prediction_feats_per_case)):
         case_preds = prediction_feats_per_case[i]
-        percent = assign_classification_CN(case_preds)
+        percent = assign_classification_CN(case_preds, min_score = min_para_score, min_predict_proba = min_predict_proba)
         case_percents[case_titles[i]] = percent
 
     print('Cross validation evaluation...')
@@ -1466,22 +1708,8 @@ def train_CN_classifier(path, clf = MultinomialNB()):
     clf.fit(X, y)
     return clf, vectorizer, case_percents #feats_train, feats_test, y_train, y_test #clf, vectorizer
 
-def get_wordnet_pos(treebank_tag):
 
-    if treebank_tag.startswith('J'):
-        return wordnet.ADJ
-    elif treebank_tag.startswith('V'):
-        return wordnet.VERB
-    elif treebank_tag.startswith('N'):
-        return wordnet.NOUN
-    elif treebank_tag.startswith('R'):
-        return wordnet.ADV
-    else:
-        return 'n'
-
-
-wordnet_lemmatizer = WordNetLemmatizer()
-def extract_CN_features(match, case, dmg_pattern, cn_pattern = None, context_length = 5, purpose = 'train'):
+def extract_CN_features(match, case, dmg_pattern, cn_pattern = None, plaintiff_split = ['plaintiff'], defendant_split = ['defendant'], context_length = 2, purpose = 'train'):
     '''Given a match will return the features associated with the specific example
     Extracts the examples by finding the percent annotation tags
     in the form <percentage type = "TYPE">50 per cent</percentage>
@@ -1506,12 +1734,12 @@ def extract_CN_features(match, case, dmg_pattern, cn_pattern = None, context_len
         percent_value = match.group(0).strip()
     start_idx = match.start()
     end_idx = match.end()
-    # Get 3 * Context Length on each side 
+    # Get 10 + Context Length on each side 
     # Used to get rid of damage tags within context around our match
     # We want to avoid getting half a damage/percentage tag else it wont be removed
     # So we get more than we need.
-    start_tokenized = ' '.join(case[:start_idx].split()[-context_length*3:])
-    end_tokenized = ' '.join(case[end_idx:].split()[:context_length*3])
+    start_tokenized = ' '.join(case[:start_idx].split()[-context_length-10:])
+    end_tokenized = ' '.join(case[end_idx:].split()[:context_length+10])
 
     #lexicons
     reduce_words = ['reduce', 'liable', 'liability', 'fault', 'responsible', 'against', 'less', 'failure']
@@ -1536,29 +1764,26 @@ def extract_CN_features(match, case, dmg_pattern, cn_pattern = None, context_len
         for e_cn in end_matches_cn:
             end_tokenized = end_tokenized.replace(e_cn.group(0), e_cn.group(2))
     # Reconstruct sentence
-    tokens = start_tokenized + " " + percent_value + " " + end_tokenized 
-    value_start_idx = len(start_tokenized.split()) # Location of value in relation to sentence (token level)
+    start_tokenized = start_tokenized.split()[-context_length:]
+    end_tokenized = end_tokenized.split()[:context_length]
+    tokens = ' '.join(start_tokenized) + " " + percent_value + " " + ' '.join(end_tokenized)
+    value_start_idx = len(start_tokenized) # Location of value in relation to sentence (token level)
     if len(percent_value.split()) > 1: # Deals with problems like '2 million' (where value is multiple tokens)
         value_end_idx = value_start_idx + len(percent_value.split()) - 1
     else:
         value_end_idx = value_start_idx
 
-    # lemmatize for BOW - get POS for lemmatizer from 'get_wordnet_pos'
-    new_tokens = []
     tokens = tokens.replace('per cent', 'percent').split()
-    for pair in pos_tag(tokens): #tuple (word, POS)
-        pos = get_wordnet_pos(pair[-1])
-        token = pair[0].strip('.')
-        new_tokens.append(wordnet_lemmatizer.lemmatize(token, pos))
-    tokens = new_tokens
 
     # Features: BOW before, BOW after, BOW, contributory negligence in text, plaintiff/defendant name matches, value, location
     start_boundary = value_start_idx - context_length if value_start_idx - context_length >= 0 else 0
     end_boundary = value_end_idx + context_length + 1 if value_end_idx + context_length + 1 < len(tokens) else len(tokens)
 
+    # remove alpha-numerics for BOW and substitute plaintiff/defendant names
+    tokens = re.sub(r'[\W0-9]', ' ', " ".join(tokens))
+    tokens = re.sub('%s|%s'%(re.escape(plaintiff_split[0]), re.escape(plaintiff_split[-1])), ' plaintiff ', tokens)
+    tokens = re.sub('%s|%s'%(re.escape(defendant_split[0]), re.escape(defendant_split[-1])), ' defendant ', tokens).split()
 
-    # remove alpha-numerics for BOW
-    tokens = re.sub(r'[\W0-9]', ' ', " ".join(tokens)).split()
     before = tokens[start_boundary : value_start_idx]
     after = tokens[value_end_idx + 1 : end_boundary]
 
@@ -1569,22 +1794,15 @@ def extract_CN_features(match, case, dmg_pattern, cn_pattern = None, context_len
     features_bow_a = {k+'@After': v for k, v in features_bow_a.items()}
     features.update(Counter(tokens))
 
-    features['contributory_negligence'] = True if 'contributory negligence' in case.lower() else False
+    # features['contributory_negligence'] = True if 'contributory negligence' in case.lower() else False
     
     # plaintiff/defendant entities
-    plaintiff_defendant_pattern = r'(^[a-z].*)+ v\. ([A-Za-z|-]+)+.*' # group 1 is plaintiff group 2 is defendant
-    if re.search(plaintiff_defendant_pattern, case.split('\n')[0]):
-        plaitiff_defendant = re.search(plaintiff_defendant_pattern, case.split('\n')[0]).groups() # tuple (plaintiff, defendant)
-    else:
-        plaitiff_defendant = ('Plaintiff', 'Defendant')
-    plaintiff_split = [word.lower() for word in plaitiff_defendant[0].split()]
-    defendant_split = [word.lower() for word in plaitiff_defendant[-1].split()]
     plaintiff_entities = ['plaintiff'] + plaintiff_split
     defendant_entities = ['defendant'] + defendant_split
 
-    features['plaintiff_mentioned'] = True if any(item in plaintiff_entities for item in tokens) else False
-    features['defendant_mentioned'] = True if any(item in defendant_entities for item in tokens) else False
-    features['value'] = percent_value
+    features['plaintiff_mentioned'] = True if any('plaintiff' in item for item in tokens) else False
+    features['defendant_mentioned'] = True if any('defendant' in item for item in tokens) else False
+    # features['value'] = percent_value
     features['start_idx_ratio'] = match.start()/len(case)
     features['reduce_lexicon'] = any(item in reduce_word for item in tokens for reduce_word in reduce_words)
     features['defendant and reduction'] = features['defendant_mentioned'] and features['reduce_lexicon']
@@ -1600,6 +1818,17 @@ def extract_CN_features(match, case, dmg_pattern, cn_pattern = None, context_len
         features['float'] = False
     else:
         features['float'] = float(percent_value.split()[0].strip('%'))*0.01
+
+    # Percent "bins"
+    if features['float']:
+        if features['float'] < 0.1:
+            features['range'] = '< 10%'
+        elif features['float'] < 0.5:
+            features['range'] = '10% - 50%'
+        elif features['float'] < 0.75:
+            features['range'] = '50%-75%'
+        else:
+            features['range'] = '75%+' 
 
     if purpose == 'train':
         return features, percent_type
