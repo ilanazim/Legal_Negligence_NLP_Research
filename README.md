@@ -8,18 +8,17 @@ In this project we are trying to analyze B.C. court negligence cases from the pa
 ------------
 ## Directory:
 
-### [Code: ](https://github.ubc.ca/nikihm/Capstone-project/tree/master/code)
+### [Code Folder ](https://github.ubc.ca/nikihm/Capstone-project/tree/master/code)
 
 #### [Experimental-notebooks: ](https://github.ubc.ca/nikihm/Capstone-project/tree/master/code/experimental-notebooks) Series of .ipynb notebooks for each persons experiment with the project
 
 #### [DOCX to TXT format.ipynb: ](https://github.ubc.ca/nikihm/Capstone-project/blob/master/code/DOCX%20to%20TXT%20format.ipynb): Notebook to convert DOCX formated files to .TXT formated files
 
-#### [Information Extraction.ipynb: ](https://github.ubc.ca/nikihm/Capstone-project/blob/master/code/Information%20Extraction.ipynb) Notebook with extracting information code. 
+#### [Project Code Samples.ipynb: ](https://github.ubc.ca/nikihm/Capstone-project/blob/master/code/Project%20Code%20Samples.ipynb) Notebook with examples on how to run entire prediction system 
 
 An example of a case information extraction:
 
-{**'case_number'**: '50 of 1',
- **'case_title'**: 'Madill v. Sithivong, [2010] B.C.J. No. 2603',
+{**'case_title'**: 'Madill v. Sithivong, [2010] B.C.J. No. 2603',
  **'year'**: '2010',
  **'registry'**: 'Chilliwack',
  **'judge'**: 'N.E. Morrison J.',
@@ -29,17 +28,17 @@ An example of a case information extraction:
  **'written_decision'**: True,
  **'Plaintiff_wins'**: True}
 
-### [Data: ](https://github.ubc.ca/nikihm/Capstone-project/tree/master/data)
+### [Data Folder ](https://github.ubc.ca/nikihm/Capstone-project/tree/master/data)
 
-#### [annotations: ](https://github.ubc.ca/nikihm/Capstone-project/tree/master/data/annotations) 130 Annotated data.
+Includes original case data as well as zip folder of the case data converted into a .TXT format. Contains a folder for the annotations that were used in the project.
 
-#### [all_annotations.txt: ](https://github.ubc.ca/nikihm/Capstone-project/blob/master/data/annotations/all_annotations.txt) In text annotation using xml tags
+#### [final_annotations.txt:](https://github.ubc.ca/nikihm/Capstone-project/blob/master/data/annotations/final_annotations.txt) In text annotation using XML tags
 
 An example of in text annotation:
 
 Plaintiff's was awarded woth non-pecuniary damages of \<damage type = 'non pecuniary'\>\$75,000\</damage\> 
 
-#### [Case-Annotation.xlsx: ](https://github.ubc.ca/nikihm/Capstone-project/blob/master/data/annotations/Case-Annotation.xlsx) Overal annotation of each case.
+#### [gold_annotations.csv:](https://github.ubc.ca/nikihm/Capstone-project/blob/master/data/annotations/gold_annotations.csv) High-level annotation of all gold cases
 
 ### [Docs: ](https://github.ubc.ca/nikihm/Capstone-project/tree/master/Docs)
 
@@ -47,11 +46,8 @@ Plaintiff's was awarded woth non-pecuniary damages of \<damage type = 'non pecun
 
 #### [Project-plan.md: ](https://github.ubc.ca/nikihm/Capstone-project/blob/master/Docs/project-plan.md) British Columbia Judicial Decisions Analysis Project plan in markdown format
 
-
 #### [Teamwork_contract: ](https://github.ubc.ca/nikihm/Capstone-project/blob/master/Docs/Team_contract.md) Contrat between group members, working hours and terms and conditions 
 
 ### Data Product
 
-#### [Data Product README](https://github.ubc.ca/nikihm/Capstone-project/blob/master/Docs/data_product_README.md)
-
-#### [Code](https://github.ubc.ca/nikihm/Capstone-project/tree/master/code)
+#### [Data Product README: ](https://github.ubc.ca/nikihm/Capstone-project/blob/master/Docs/data_product_README.md) Guide on how to run code to reproduce results found in report
