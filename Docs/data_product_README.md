@@ -43,13 +43,13 @@ Note: All visualization packages are optional. These packages are not needed to 
 
 ### Description
 
-All code is located in the `/code/` folder. The main file needed to reproduce our visualizations can be found in `visualize.ipynb`. To open the notebook, you must have Jupyter Notebook or Jupyter Lab installed. The notebook has each cell producing a different type of chart. The charts will change depending on the model that is used to gather the results
+All code is located in the `/code/` folder. Note that moving code out of this directory and running it may not work because of the import statements across files only working in the same directory. The main file needed to reproduce our visualizations can be found in `visualize.ipynb`. To open the notebook, you must have Jupyter Notebook or Jupyter Lab installed. The notebook has each cell producing a different type of chart. The charts will change depending on the model that is used to gather the results
  
-All code required to reproduce our results can be found in `key_functions.py`. Functions in this file are required by `visualize.ipynb` and `parsing_script.py`. The file is organized into several functions - some of which are meant to be helper functions to others. The main pipelines users can choose to use are described below. If you wish to avoid any coding you may use `parsing_script.py` which will take a DOCX file or a directory containing DOCX files and output a spreadsheet containing the results - more details on how to run this can be found below.
+All code required to reproduce our results can be found in `key_functions.py`. The file is organized into several functions - some of which are meant to be helper functions to others. The main pipelines users can choose to use are described below and included in `Project Code Samples.ipynb`. If you wish to avoid any coding you may use `parsing_script.py` which will take a DOCX file or a directory containing DOCX files and output a spreadsheet containing the results - more details on how to run this can be found below.
 
 ### Simple Pipeline
 
-We have included a `parsing_script.py` which handles the bulk of work required to take a DOCX case from LexisNexus and receive the predictions in a spreadsheet format. This approach is the simplest & easiest to follow. However, there is very limited ability to customize or change any parameters. There is no ability to train new models. If you wish to play with different models, parameters, or datasets refer to the full code pipeline below.
+We have included a `parsing_script.py` which handles the bulk of work required to take a DOCX case from LexisNexus and turn the predictions into a spreadsheet format. This approach is the simplest & easiest to follow. However, there is very limited ability to customize or change any parameters. There is no ability to train new models. If you wish to play with different models, parameters, or datasets refer to the full code pipeline below.
 
 Before running `parsing_script.py`, all non-optional package requirements must be fulfilled. 
 
