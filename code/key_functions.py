@@ -66,6 +66,7 @@ def parse_BCJ(document_data, damage_model = None, damage_vectorizer = None, anno
         lines = case.split('\n')
         if len(lines) < 2:
             print(case)
+            continue
         case_title = lines[0]
         case_type = lines[1]
 
@@ -146,21 +147,18 @@ def parse_BCJ(document_data, damage_model = None, damage_vectorizer = None, anno
             # Contributory Negligence
             # ----
             
-            # find a way to not use rule based to get CN successful
             percent_reduction, contributory_negligence_successful = get_percent_reduction_and_contributory_negligence_success(case_dict, case)
-
+            
             if cn_model and cn_vectorizer and annotated_cn:
                 percent_reduction_clf = None
                 if case_title in annotated_cn:
-                    if contributory_negligence_successful:
-                        case_dict['percent_reduction'] = annotated_cn[case_title]
-                    else:
-                        case_dict['percent_reduction'] = percent_reduction
+                    case_dict['percent_reduction'] = annotated_cn[case_title]
                 else:
                     predictions = predict(case, cn_model, cn_vectorizer, category='cn', context_length = cn_context_length)
                     percent_reduction_clf = assign_classification_CN(predictions) 
                 if percent_reduction_clf and contributory_negligence_successful:
-                    case_dict['percent_reduction'] = percent_reduction_clf
+                    if 'percent_reduction' not in case_dict:
+                        case_dict['percent_reduction'] = percent_reduction_clf
                 else:
                     case_dict['percent_reduction'] = percent_reduction*0.01 if percent_reduction != None else None
             else: 
@@ -648,8 +646,8 @@ def get_context_and_float(value, text, context_length = 8, plaintiff_name = 'Pla
     context = ''
     amount = re.findall(r'[0-9]+[0-9|,]*(?:\.[0-9]+)?', value)
     extracted_value = clean_money_amount(amount) #use helper function to get float of dollar/percent value
-    if not extracted_value:
-        print('\nERROR: cant convert string\n', amount)
+    if extracted_value is None:
+        print('\nERROR: cant convert string\n', amount[0])
         return context, None
     # get indices of last instance of value in text - tokenize like this for values of type 'per cent and percent'
     start_idx = text.rfind(value)
