@@ -1423,6 +1423,7 @@ def evaluate(dev_data, gold_data, subset=None, focus_column=None):
                       'General': '$ General Damages',
                       'Punitive': '$ Punitive Damages',
                       'Aggravated': '$Aggravated Damages',
+                      'Contributory Negligence Raised': 'Contributory Negligence Raised?',
                      'Contributory Negligence Successful':'Contributory Negligence Successful?',
                      'Percent Reduction':'% Reduction as a result of contributory negligence'}
     dev_data.rename(columns = column_mapping, inplace = True)
